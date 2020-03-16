@@ -4,7 +4,9 @@ VisualStudioVersion = 16.0.29905.134
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Anteater.Demo", "src\Anteater.Demo\Anteater.Demo.fsproj", "{E1D7AF05-189E-4B10-9729-A29791CF32D4}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Anteater", "src\Anteater\Anteater.fsproj", "{686DA1D2-430A-48F3-81C5-8130A7BA9FE5}"
+Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Anteater", "src\Anteater\Anteater.fsproj", "{686DA1D2-430A-48F3-81C5-8130A7BA9FE5}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Anteater.OpenGL", "src\Anteater.OpenGL\Anteater.OpenGL.fsproj", "{E24BF926-E99E-460E-8075-2C7EF7FF020E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -20,6 +22,10 @@ Global
 		{686DA1D2-430A-48F3-81C5-8130A7BA9FE5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{686DA1D2-430A-48F3-81C5-8130A7BA9FE5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{686DA1D2-430A-48F3-81C5-8130A7BA9FE5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E24BF926-E99E-460E-8075-2C7EF7FF020E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E24BF926-E99E-460E-8075-2C7EF7FF020E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E24BF926-E99E-460E-8075-2C7EF7FF020E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E24BF926-E99E-460E-8075-2C7EF7FF020E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

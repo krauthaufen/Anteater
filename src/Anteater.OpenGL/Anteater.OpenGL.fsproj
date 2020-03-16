@@ -1,22 +1,24 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <OutputPath>..\..\bin\Debug\</OutputPath>
+    <DocumentationFile>..\..\bin\Debug\netstandard2.0\Anteater.XML</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
     <OutputPath>..\..\bin\Release</OutputPath>
+    <DocumentationFile>..\..\bin\Release\netstandard2.0\Anteater.XML</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <None Include="paket.references" />
-    <Compile Include="Program.fs" />
+    <Compile Include="Utilities.fs" />
+    <Compile Include="ContextHandle.fs" />
+    <Compile Include="Device.fs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Anteater.OpenGL\Anteater.OpenGL.fsproj" />
     <ProjectReference Include="..\Anteater\Anteater.fsproj" />
   </ItemGroup>
   <Import Project="..\..\.paket\Paket.Restore.targets" />

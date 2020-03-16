@@ -1,5 +1,5 @@
 source https://api.nuget.org/v3/index.json
-framework: netcoreapp3.1
+framework: netstandard2.0, netcoreapp3.1
 storage: none
 
 nuget FSharp.Core                           >= 4.6.2 lowest_matching: true
@@ -7,6 +7,8 @@ nuget FSharp.Core                           >= 4.6.2 lowest_matching: true
 nuget FSharp.Data.Adaptive                  ~> 0.0.18
 nuget Aardvark.Base                         ~> 5.0.5
 nuget Aardvark.Base.FSharp                  ~> 5.0.5
+nuget Silk.NET.OpenGL                       ~> 1.0.0
+nuget Silk.NET.GLFW                         ~> 1.0.0
 
 group Build
   framework: netstandard2.0
