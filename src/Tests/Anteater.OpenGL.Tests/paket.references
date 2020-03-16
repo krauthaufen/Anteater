@@ -1,0 +1,14 @@
+﻿FSharp.Core
+
+FSharp.Data.Adaptive
+Aardvark.Base
+Aardvark.Base.FSharp
+
+Silk.NET.OpenGL
+Silk.NET.GLFW
+
+FsCheck                          
+Expecto                          
+Expecto.FsCheck                  
+Microsoft.NET.Test.Sdk
+YoloDev.Expecto.TestSdk

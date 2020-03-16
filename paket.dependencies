@@ -10,6 +10,12 @@ nuget Aardvark.Base.FSharp                  ~> 5.0.5
 nuget Silk.NET.OpenGL                       ~> 1.0.0
 nuget Silk.NET.GLFW                         ~> 1.0.0
 
+nuget Microsoft.NET.Test.Sdk                ~> 15.8.0
+nuget FsCheck                               ~> 2.14.0
+nuget Expecto                               ~> 8.13.2
+nuget Expecto.FsCheck                       ~> 8.13.2
+nuget YoloDev.Expecto.TestSdk               ~> 0.8.0
+
 group Build
   framework: netstandard2.0
   source https://api.nuget.org/v3/index.json

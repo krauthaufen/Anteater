@@ -14,6 +14,7 @@ module Glfw =
             glfw.GetProcAddress(name)
 
     let api = 
+        //DynamicLinker.tryLoadLibrary "glfw3" |> ignore
         let a = Glfw.GetApi()
         if not (a.Init()) then failwith "[GLFW] could not initialize"
         do Silk.NET.Core.Platform.SilkManager.Register<Silk.NET.Core.Loader.GLSymbolLoader>(GlfwLoader a)
