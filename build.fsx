@@ -342,7 +342,7 @@ Target.create "Push" (fun _ ->
 
 
 Target.create "RunTest" (fun _ ->
-    let ci = Environment.GetEnvironmentVariable "GITHUB_TOKEN"
+    let ci = Environment.GetEnvironmentVariable "GITHUB_WORKFLOW"
     if isNull ci then
         let options (o : DotNet.TestOptions) =
             { (o.WithRedirectOutput false) with
