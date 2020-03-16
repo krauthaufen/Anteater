@@ -27,7 +27,7 @@ let simple =
     testList "ContextCreation" [
 
         testCase "create" (fun () ->
-            let h = ContextHandle.Create (Version(1,4))
+            let h = ContextHandle.Create (Version(0,0))
             h.Dispose()
         ) 
     ]

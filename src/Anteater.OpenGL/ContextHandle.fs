@@ -29,10 +29,12 @@ module Glfw =
         lock api (fun () ->
             api.DefaultWindowHints()
             api.WindowHint(WindowHintBool.Visible, false)
-            api.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core)
-            api.WindowHint(WindowHintInt.ContextVersionMajor, v.Major)
-            api.WindowHint(WindowHintInt.ContextVersionMinor, v.Minor)
-
+            if v.Major > 0 then
+                api.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core)
+                api.WindowHint(WindowHintInt.ContextVersionMajor, v.Major)
+                api.WindowHint(WindowHintInt.ContextVersionMinor, v.Minor)
+            else
+                api.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Any)
             let win = api.CreateWindow(8,8, "", NativePtr.zero, lastWindow)
             if NativePtr.isNull win then failwithf "[GLFW] could not create context"
             lastWindow <- win
