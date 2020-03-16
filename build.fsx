@@ -342,14 +342,16 @@ Target.create "Push" (fun _ ->
 
 
 Target.create "RunTest" (fun _ ->
-    let options (o : DotNet.TestOptions) =
-        { (o.WithRedirectOutput false) with
-            NoBuild = true
-            NoRestore = true
-            Configuration = DotNet.BuildConfiguration.Release
-            Logger = Some "console;verbosity=normal"
-        }
-    DotNet.test options "Anteater.sln"
+    let ci = Environment.GetEnvironmentVariable "GITHUB_TOKEN"
+    if isNull ci then
+        let options (o : DotNet.TestOptions) =
+            { (o.WithRedirectOutput false) with
+                NoBuild = true
+                NoRestore = true
+                Configuration = DotNet.BuildConfiguration.Release
+                Logger = Some "console;verbosity=normal"
+            }
+        DotNet.test options "Anteater.sln"
 )
 
 Target.create "Default" ignore
