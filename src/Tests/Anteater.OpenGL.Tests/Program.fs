@@ -5,5 +5,5 @@ open Expecto.Impl
 
 [<EntryPoint>]
 let main args =
-    runTests ExpectoConfig.defaultConfig ContextCreation.simple |> ignore
+    runTests ExpectoConfig.defaultConfig Buffers.simple |> ignore
     0

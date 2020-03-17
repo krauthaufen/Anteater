@@ -49,7 +49,7 @@ type Buffer private() =
                 )
 
     static let toBufferStorageMask (usage : BufferUsage) =
-        let mutable res = unbox<BufferStorageMask> 0
+        let mutable res = BufferStorageMask.MapReadBit ||| BufferStorageMask.MapWriteBit
         if usage.HasFlag BufferUsage.CopyDst then res <- res ||| BufferStorageMask.DynamicStorageBit
         uint32 res
         
