@@ -261,13 +261,41 @@ type BufferUsage =
     | CopySrc       = 0x008
     | CopyDst       = 0x010
 
+[<AbstractClass>]
+type BufferRange() =
+    abstract member Buffer : Buffer
+    abstract member Offset : int64
+    abstract member Size : int64
 
-type Buffer(handle : obj, size : int64, usage : BufferUsage, release : obj -> unit) =
+    member x.GetSlice(min : option<int64>, max : option<int64>) =
+        let min = defaultArg min 0L
+        let max = defaultArg max (x.Size - 1L)
+        let s = 1L + max - min
+        if min < 0L || min >= x.Size || s < 0L || min + s > x.Size then raise <| IndexOutOfRangeException()
+
+        let offset = x.Offset + min
+        { new BufferRange() with
+            member __.Buffer = x.Buffer
+            member __.Offset = offset
+            member __.Size = s
+        }
+
+    member x.GetSlice(min : option<int>, max : option<int>) =
+        x.GetSlice(Option.map int64 min, Option.map int64 max)
+        
+
+and Buffer(handle : obj, size : int64, usage : BufferUsage, release : obj -> unit) =
+    inherit BufferRange()
+
     let mutable handle = handle
     let mutable size = size
     let mutable usage = usage
+
+    override x.Offset = 0L
+    override x.Buffer = x
+    override x.Size = size
+
     member x.Handle = handle
-    member x.Size = size
     member x.Usage = usage
     member x.Dispose() =
         if not (isNull handle) then
@@ -275,6 +303,21 @@ type Buffer(handle : obj, size : int64, usage : BufferUsage, release : obj -> un
             handle <- null
             size <- 0L
             usage <- BufferUsage.None
+
+    member x.GetSlice(min : option<int64>, max : option<int64>) =
+        let min = defaultArg min 0L
+        let max = defaultArg max (size - 1L)
+        let s = 1L + max - min
+        if min < 0L || min >= size || s < 0L || min + s > size then raise <| IndexOutOfRangeException()
+        { new BufferRange() with
+            member __.Buffer = x
+            member __.Offset = min
+            member __.Size = s
+        }
+
+    member x.GetSlice(min : option<int>, max : option<int>) =
+        x.GetSlice(Option.map int64 min, Option.map int64 max)
+        
     interface IDisposable with
         member x.Dispose() = x.Dispose()
 

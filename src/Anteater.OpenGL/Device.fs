@@ -10,6 +10,8 @@ open Silk.NET.OpenGL
 open Aardvark.Base
 open Microsoft.FSharp.NativeInterop
 open Silk.NET.OpenGL.Extensions.ARB
+open Anteater
+open System.Runtime.CompilerServices
 
 #nowarn "9"
 
@@ -71,9 +73,21 @@ module DeviceInfo =
             extensions = Seq.init (gl.GetInteger GetPName.NumExtensions) (fun i -> gl.GetString(StringName.Extensions, uint32 i)) |> Set.ofSeq
         }
 
-type Device(cfg : DeviceConfig) =
+type OpenGLDevice(cfg : DeviceConfig) =
+    inherit Device()
+
     do if cfg.nVidia then DynamicLinker.tryLoadLibrary ("nvapi64" + libraryExtension) |> ignore
 
+    
+    static let freeBuffer (this : OpenGLDevice) (handle : obj) =
+        this.Start(fun gl ->
+            gl.DeleteBuffer (unbox<uint32> handle)
+        )
+        
+    static let toBufferStorageMask (usage : BufferUsage) =
+        let mutable res = BufferStorageMask.MapReadBit ||| BufferStorageMask.MapWriteBit
+        if usage.HasFlag BufferUsage.CopyDst then res <- res ||| BufferStorageMask.DynamicStorageBit
+        uint32 res
 
     static let deviceThread (ct : CancellationToken) (queue : BlockingCollection<GL -> unit>) (ctx : ContextHandle) (gl : GL) () =
         ctx.MakeCurrent()
@@ -94,11 +108,36 @@ type Device(cfg : DeviceConfig) =
         
     let gl = GL.GetApi()
 
-    let info =
+    let useContext (action : unit -> 'a) =
         contexts.[0].MakeCurrent()
-        let res = DeviceInfo.read gl
-        contexts.[0].ReleaseCurrent()
-        res
+        try action()
+        finally contexts.[0].ReleaseCurrent()
+        
+
+    let info =
+        useContext (fun () ->
+            DeviceInfo.read gl
+        )
+
+    let directState =
+        useContext <| fun () ->
+            match gl.TryGetExtension<ArbDirectStateAccess>() with
+            | true, e -> Some e
+            | _ -> None
+            
+    let bufferStorage =
+        useContext <| fun () ->
+            match gl.TryGetExtension<ArbBufferStorage>() with
+            | true, e -> Some e
+            | _ -> None
+    let copyBuffer =
+        useContext <| fun () ->
+            match gl.TryGetExtension<ArbCopyBuffer>() with
+            | true, e -> Some e
+            | _ -> None
+        
+        
+
 
     let cancel = new CancellationTokenSource()
     let queue = new BlockingCollection<GL -> unit>()
@@ -115,9 +154,14 @@ type Device(cfg : DeviceConfig) =
             thread
         )
 
+    member x.DirectState = directState
+    member x.CopyBuffer = copyBuffer
+
     member x.Info = info
 
-    member x.Dispose() =
+    override x.Name = info.renderer
+
+    override x.Dispose() =
         cancel.Cancel()
         for t in threads do t.Join()
         queue.Dispose()
@@ -169,104 +213,129 @@ type Device(cfg : DeviceConfig) =
         | Choice1Of2 v -> v
         | Choice2Of2 e -> raise e
  
-    member x.Start(cmd : CommandStream) =
-        x.Start cmd.Run
+    override x.Start(cmd : CommandStream) =
+        x.Start (unbox<ManagedOpenGLCommandStream> cmd).Run
         
-    member x.StartAsTask(cmd : CommandStream) =
-        x.StartAsTask cmd.Run
+    override x.StartAsTask(cmd : CommandStream) =
+        x.StartAsTask (unbox<ManagedOpenGLCommandStream> cmd).Run :> Task
         
-    member x.Run(cmd : CommandStream) =
-        x.Run cmd.Run
+    override x.Run(cmd : CommandStream) =
+        x.Run (unbox<ManagedOpenGLCommandStream> cmd).Run
 
-    interface IDisposable with
-        member x.Dispose() = x.Dispose()
+    override x.CreateBuffer(size : int64, usage : BufferUsage) =
+        x.Run (fun gl ->
+            let handle = gl.GenBuffer()
+            match directState with
+            | Some ext ->
+                ext.NamedBufferStorage(handle, uint32 size, VoidPtr.zero, toBufferStorageMask usage)
+            | None -> 
+                match bufferStorage with
+                | Some ext ->
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, handle)
+                    ext.BufferStorage(BufferStorageTarget.ArrayBuffer, uint32 size, VoidPtr.zero, toBufferStorageMask usage)
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
 
+                | None -> 
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, handle)
+                    gl.BufferData(BufferTargetARB.ArrayBuffer, uint32 size, VoidPtr.zero, BufferUsageARB.StaticDraw)
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
 
-and CommandStream() =
+           
+
+            new Anteater.Buffer(handle, size, usage, freeBuffer x)
+        )
+
+    override x.CreateCommandStream() =
+        new ManagedOpenGLCommandStream() :> CommandStream
+
+and ManagedOpenGLCommandStream() =
+    inherit CommandStream()
+
     let actions = System.Collections.Generic.List<GL -> unit>()
     let cleanup = System.Collections.Generic.List<unit -> unit>()
 
 
-    member x.Copy(src : Anteater.Buffer, srcOffset : int64, dst : Anteater.Buffer, dstOffset : int64, size : int64) =
-        let sh = unbox<uint32> src.Handle
-        let dh = unbox<uint32> dst.Handle
-        actions.Add <| fun gl ->
-            match gl.TryGetExtension<ArbDirectStateAccess>() with
-            | true, ext ->
-                ext.CopyNamedBufferSubData(sh, dh, int srcOffset, int dstOffset, uint32 size)
-            | _ ->
-                match gl.TryGetExtension<ArbCopyBuffer>() with
+    override x.Copy(src : BufferRange, dst : BufferRange) =
+        let size = min src.Size dst.Size
+        let srcOffset = src.Offset
+        let dstOffset = dst.Offset
+        if size > 0L then
+            let sh = unbox<uint32> src.Buffer.Handle
+            let dh = unbox<uint32> dst.Buffer.Handle
+            actions.Add <| fun gl ->
+                match gl.TryGetExtension<ArbDirectStateAccess>() with
                 | true, ext ->
-                    gl.BindBuffer(BufferTargetARB.CopyReadBuffer, sh)
-                    gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, dh)
-                    ext.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, int srcOffset, int dstOffset, uint32 size)
-                    gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0u)
-                    gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, 0u)
+                    ext.CopyNamedBufferSubData(sh, dh, int srcOffset, int dstOffset, uint32 size)
+                | _ ->
+                    match gl.TryGetExtension<ArbCopyBuffer>() with
+                    | true, ext ->
+                        gl.BindBuffer(BufferTargetARB.CopyReadBuffer, sh)
+                        gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, dh)
+                        ext.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, int srcOffset, int dstOffset, uint32 size)
+                        gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0u)
+                        gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, 0u)
+                    | _ ->
+                        gl.BindBuffer(BufferTargetARB.ArrayBuffer, sh)
+                        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, dh)
+                        let psrc = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, nativeint srcOffset, unativeint size, uint32 BufferAccessARB.ReadOnly) |> VoidPtr.toNativeInt
+                        let pdst = gl.MapBufferRange(BufferTargetARB.ElementArrayBuffer, nativeint dstOffset, unativeint size, uint32  BufferAccessARB.WriteOnly) |> VoidPtr.toNativeInt
+                        Marshal.Copy(psrc, pdst, size)
+                        gl.UnmapBuffer BufferTargetARB.ArrayBuffer |> ignore
+                        gl.UnmapBuffer BufferTargetARB.ElementArrayBuffer |> ignore
+
+    override x.Copy(src : nativeint, dst : BufferRange) =
+        let size = dst.Size
+        if size > 0L then
+            let dstOffset = dst.Offset
+            let dh = unbox<uint32> dst.Buffer.Handle
+            actions.Add <| fun gl ->
+                match gl.TryGetExtension<ArbDirectStateAccess>() with
+                | true, ext ->
+                    let pdst = ext.MapNamedBufferRange(dh, int dstOffset, uint32 size, uint32 (MapBufferAccessMask.MapWriteBit ||| MapBufferAccessMask.MapInvalidateRangeBit)) |> VoidPtr.toNativeInt
+                    Marshal.Copy(src, pdst, size)
+                    ext.UnmapNamedBuffer(dh) |> ignore
+                | _ ->
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, dh)
+                    let pdst = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, nativeint dstOffset, unativeint size, uint32 (MapBufferAccessMask.MapWriteBit ||| MapBufferAccessMask.MapInvalidateRangeBit)) |> VoidPtr.toNativeInt
+                    Marshal.Copy(src, pdst, size)
+                    gl.UnmapBuffer BufferTargetARB.ArrayBuffer |> ignore
+                
+    override x.Copy(src : BufferRange, dst : nativeint) =
+        let size = src.Size
+        if size > 0L then
+            let sh = unbox<uint32> src.Buffer.Handle
+            actions.Add <| fun gl ->
+                match gl.TryGetExtension<ArbDirectStateAccess>() with
+                | true, ext ->
+                    let psrc = ext.MapNamedBufferRange(sh, int src.Offset, uint32 size, uint32 MapBufferAccessMask.MapReadBit) |> VoidPtr.toNativeInt
+                    Marshal.Copy(psrc, dst, size)
+                    ext.UnmapNamedBuffer(sh) |> ignore
                 | _ ->
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, sh)
-                    gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, dh)
-                    let ps = gl.MapBuffer(BufferTargetARB.ArrayBuffer, BufferAccessARB.ReadOnly)
-                    let pd = gl.MapBuffer(BufferTargetARB.ElementArrayBuffer, BufferAccessARB.WriteOnly)
-
-                    let psrc = NativePtr.toNativeInt (NativePtr.ofVoidPtr<byte> ps)
-                    let pdst = NativePtr.toNativeInt (NativePtr.ofVoidPtr<byte> pd)
-                    Marshal.Copy(psrc + nativeint srcOffset, pdst + nativeint dstOffset, size)
+                    let psrc = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, nativeint src.Offset, unativeint size, uint32 MapBufferAccessMask.MapReadBit) |> VoidPtr.toNativeInt
+                    Marshal.Copy(psrc, dst, size)
                     gl.UnmapBuffer BufferTargetARB.ArrayBuffer |> ignore
-                    gl.UnmapBuffer BufferTargetARB.ElementArrayBuffer |> ignore
 
-    member x.Copy(src : nativeint, dst : Anteater.Buffer, dstOffset : int64, size : int64) =
-        let dh = unbox<uint32> dst.Handle
-        actions.Add <| fun gl ->
-            match gl.TryGetExtension<ArbDirectStateAccess>() with
-            | true, ext ->
-                let pd = ext.MapNamedBufferRange(dh, int dstOffset, uint32 size, uint32 MapBufferAccessMask.MapWriteBit)
-                let pdst = NativePtr.toNativeInt (NativePtr.ofVoidPtr<byte> pd)
-                Marshal.Copy(src, pdst + nativeint dstOffset, size)
-                ext.UnmapNamedBuffer(dh) |> ignore
-            | _ ->
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, dh)
-                let pd = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, nativeint dstOffset, unativeint size, uint32 (MapBufferAccessMask.MapWriteBit ||| MapBufferAccessMask.MapInvalidateRangeBit))
-                let pdst = NativePtr.toNativeInt (NativePtr.ofVoidPtr<byte> pd)
-                Marshal.Copy(src, pdst + nativeint dstOffset, size)
-                gl.UnmapBuffer BufferTargetARB.ArrayBuffer |> ignore
-                
-    member x.Copy(src : Anteater.Buffer, srcOffset : int64, dst : nativeint, size : int64) =
-        let sh = unbox<uint32> src.Handle
-        actions.Add <| fun gl ->
-            match gl.TryGetExtension<ArbDirectStateAccess>() with
-            | true, ext ->
-                let ps = ext.MapNamedBufferRange(sh, int srcOffset, uint32 size, uint32 MapBufferAccessMask.MapReadBit)
-                let psrc = NativePtr.toNativeInt (NativePtr.ofVoidPtr<byte> ps)
-                Marshal.Copy(psrc, dst, size)
-                ext.UnmapNamedBuffer(sh) |> ignore
-            | _ ->
-                gl.BindBuffer(BufferTargetARB.ArrayBuffer, sh)
-                let ps = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, nativeint srcOffset, unativeint size, uint32 MapBufferAccessMask.MapReadBit)
-                let psrc = NativePtr.toNativeInt (NativePtr.ofVoidPtr<byte> ps)
-                Marshal.Copy(psrc, dst, size)
-                gl.UnmapBuffer BufferTargetARB.ArrayBuffer |> ignore
+    override x.Copy<'T when 'T : unmanaged>(src : Memory<'T>, dst : Anteater.BufferRange) =
+        let handle = src.Pin()
 
-    member x.Copy<'a when 'a : unmanaged>(src : 'a[], srcIndex : int, dst : Anteater.Buffer, dstOffset : int64, count : int) =
-        let gc = GCHandle.Alloc(src, GCHandleType.Pinned)
-        let sa = int64 sizeof<'a>
-        let srcOffset = int64 srcIndex * sa
-        let size = int64 count * sa
-        x.Copy(gc.AddrOfPinnedObject() + nativeint srcOffset, dst, dstOffset, size)
-        actions.Add (ignore >> gc.Free)
+        let srcSize = int64 src.Length * int64 sizeof<'T>
+        if srcSize < dst.Size then
+            x.Copy(VoidPtr.toNativeInt handle.Pointer, dst.[..srcSize-1L])
+        else
+            x.Copy(VoidPtr.toNativeInt handle.Pointer, dst)
 
-    member x.Copy<'a when 'a : unmanaged>(src : Anteater.Buffer, srcOffset : int64, dst : 'a[], dstIndex : int, count : int) =
-        let gc = GCHandle.Alloc(dst, GCHandleType.Pinned)
-        let sa = int64 sizeof<'a>
-        let dstOffset = int64 dstIndex * sa
-        let size = int64 count * sa
-        x.Copy(src, srcOffset, gc.AddrOfPinnedObject() + nativeint dstOffset, size)
-        actions.Add (ignore >> gc.Free)
-
-    member x.Copy<'a when 'a : unmanaged>(src : 'a[], dst : Anteater.Buffer) =
-        x.Copy(src, 0, dst, 0L, src.Length)
+        actions.Add (ignore >> handle.Dispose)
         
-    member x.Copy<'a when 'a : unmanaged>(src : Anteater.Buffer, dst : 'a[]) =
-        x.Copy(src, 0L, dst, 0, dst.Length)
+    override x.Copy<'T when 'T : unmanaged>(src : Anteater.BufferRange, dst : Memory<'T>) =
+        let handle = dst.Pin()
+        
+        let dstSize = int64 dst.Length * int64 sizeof<'T>
+        if dstSize < src.Size then
+            x.Copy(src.[..dstSize-1L], VoidPtr.toNativeInt handle.Pointer)
+        else
+            x.Copy(src, VoidPtr.toNativeInt handle.Pointer)
+        actions.Add (ignore >> handle.Dispose)
 
     member internal x.Run(gl : GL) =
         for a in actions do a gl

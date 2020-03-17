@@ -6,6 +6,7 @@ open Anteater.OpenGL
 open Expecto
 open System.Runtime.InteropServices
 open System.IO
+open Anteater
 
 let path = 
     let arch =
@@ -25,7 +26,7 @@ let test = NativeLibrary.TryLoad path
 
 let inline deviceTest (name : string) (action : Device -> unit) =
     testCase name (fun () ->
-        use d = new Device { version = System.Version(4,1); queues = 1; nVidia = false }
+        use d = new OpenGLDevice { version = System.Version(4,1); queues = 1; nVidia = false }
         action d
     ) 
 

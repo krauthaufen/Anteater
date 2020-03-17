@@ -6,7 +6,7 @@ open Silk.NET.OpenGL
 
 [<EntryPoint;STAThread>]
 let main argv = 
-    use d = new Device { version = Version(4,5); nVidia = false; queues = 1 }
+    use d = new OpenGLDevice { version = Version(4,5); nVidia = false; queues = 1 }
 
     
     Log.line "vendor:  %s" d.Info.vendor

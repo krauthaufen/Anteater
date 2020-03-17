@@ -17,7 +17,6 @@
     <Compile Include="Utilities.fs" />
     <Compile Include="ContextHandle.fs" />
     <Compile Include="Device.fs" />
-    <Compile Include="Buffers.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Anteater\Anteater.fsproj" />

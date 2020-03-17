@@ -21,9 +21,9 @@ let simple =
             let data : int[] = Array.init 1024 id
             let test : int[] = Array.zeroCreate 1024
             use b = d.CreateBuffer(1L <<< 20, BufferUsage.CopyDst ||| BufferUsage.CopySrc)
-            let cmd = CommandStream()
-            cmd.Copy(data, b)
-            cmd.Copy(b, test)
+            let cmd = d.CreateCommandStream()
+            cmd.Copy(data, b.[1024..])
+            cmd.Copy(b.[1024..], test)
             d.Run cmd
             Expect.equal test data "wrong"
         ) 
