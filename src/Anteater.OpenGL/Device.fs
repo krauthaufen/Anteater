@@ -1,6 +1,9 @@
 ﻿namespace Anteater.OpenGL
 
 open System
+open System.Threading
+open System.Threading.Tasks
+open System.Collections.Concurrent
 open Aardvark.Base
 open Silk.NET.OpenGL
 open Aardvark.Base
@@ -10,6 +13,7 @@ type DeviceConfig =
     {
         version : Version
         nVidia : bool
+        queues : int
     }
 
 
@@ -66,19 +70,101 @@ module DeviceInfo =
 
 type Device(cfg : DeviceConfig) =
     do if cfg.nVidia then DynamicLinker.tryLoadLibrary ("nvapi64" + libraryExtension) |> ignore
-    let ctx = ContextHandle.Create(cfg.version)
+
+
+    static let deviceThread (ct : CancellationToken) (queue : BlockingCollection<GL -> unit>) (ctx : ContextHandle) (gl : GL) () =
+        ctx.MakeCurrent()
+        try
+            try
+                for e in queue.GetConsumingEnumerable(ct) do
+                    try e gl
+                    with _ -> ()
+            with :? OperationCanceledException ->
+                ()
+        finally 
+            ctx.ReleaseCurrent()
+
+    let contexts =
+        Array.init (max cfg.queues 1) (fun i ->
+            ContextHandle.Create(cfg.version)
+        )
+        
     let gl = GL.GetApi()
 
     let info =
-        ctx.MakeCurrent()
+        contexts.[0].MakeCurrent()
         let res = DeviceInfo.read gl
-        ctx.ReleaseCurrent()
+        contexts.[0].ReleaseCurrent()
         res
+
+    let cancel = new CancellationTokenSource()
+    let queue = new BlockingCollection<GL -> unit>()
+    let threads =
+        contexts |> Array.mapi (fun id ctx ->
+            let thread = 
+                Thread(
+                    ThreadStart(deviceThread cancel.Token queue ctx gl),
+                    IsBackground = true,
+                    Name = sprintf "OpenGL[%d]" id,
+                    Priority = ThreadPriority.Highest
+                )
+            thread.Start()
+            thread
+        )
 
     member x.Info = info
 
     member x.Dispose() =
-        ctx.Dispose()
+        cancel.Cancel()
+        for t in threads do t.Join()
+        queue.Dispose()
+        cancel.Dispose()
 
+    member x.Start(action : GL -> unit) =
+        queue.Add (fun gl ->
+            action gl
+            gl.Flush()
+            gl.Finish()
+        )
+
+    member x.StartAsTask(action : GL -> 'a) =
+        let tcs = TaskCompletionSource<'a>()
+        let action gl =
+            try
+                let res = action gl
+                gl.Flush()
+                gl.Finish()
+                tcs.SetResult res
+            with e ->
+                tcs.SetException e
+        queue.Add action
+        tcs.Task
+
+    member x.Run(action : GL -> 'a) =
+        let res : ref<option<Choice<'a, exn>>> = ref None
+        let action gl =
+            try
+                let value = action gl
+                gl.Flush()
+                gl.Finish()
+                lock res (fun () -> 
+                    res := Some (Choice1Of2 value)
+                    Monitor.PulseAll res
+                )
+            with e ->
+                lock res (fun () ->
+                    res := Some (Choice2Of2 e)
+                    Monitor.PulseAll res
+
+                )
+        queue.Add action
+        lock res (fun () ->
+            while Option.isNone !res do
+                Monitor.Wait res |> ignore
+        )
+        match res.Value.Value with
+        | Choice1Of2 v -> v
+        | Choice2Of2 e -> raise e
+ 
     interface IDisposable with
         member x.Dispose() = x.Dispose()

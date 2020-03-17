@@ -5,4 +5,5 @@ Aardvark.Base
 Aardvark.Base.FSharp
 
 Silk.NET.OpenGL
+Silk.NET.OpenGL.Extensions.ARB
 Silk.NET.GLFW

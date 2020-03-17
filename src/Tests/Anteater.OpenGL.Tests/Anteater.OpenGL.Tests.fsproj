@@ -13,7 +13,9 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="paket.references" />
+    <Compile Include="Utilities.fs" />
     <Compile Include="ContextCreation.fs" />
+    <Compile Include="Buffers.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

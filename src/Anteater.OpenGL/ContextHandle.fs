@@ -13,11 +13,9 @@ module Glfw =
         override x.CoreLoadFunctionPointer(lib : nativeint, name : string) =
             glfw.GetProcAddress(name)
 
-    let api = 
-        if isWindows then DynamicLinker.tryLoadLibrary "glfw3.dll" |> ignore
-        elif isLinux then DynamicLinker.tryLoadLibrary "libglfw.so.3" |> ignore
-        elif isOSX then DynamicLinker.tryLoadLibrary "libglfw.3.dylib" |> ignore
 
+    let api =
+        //Ultz.SuperInvoke.LibraryActivator.CreateInstance<Glfw>()
         let a = Glfw.GetApi()
         if not (a.Init()) then failwith "[GLFW] could not initialize"
         do Silk.NET.Core.Platform.SilkManager.Register<Silk.NET.Core.Loader.GLSymbolLoader>(GlfwLoader a)
