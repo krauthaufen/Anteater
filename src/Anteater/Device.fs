@@ -11,6 +11,17 @@ type CommandStream() =
     abstract member Copy : src : BufferRange * dst : nativeint -> unit
     abstract member Copy<'T when 'T : unmanaged> : src : Memory<'T> * dst : BufferRange -> unit
     abstract member Copy<'T when 'T : unmanaged> :  src : BufferRange * dst : Memory<'T> -> unit
+    abstract member Dispose : disposing : bool -> unit
+
+    override x.Finalize() =
+        x.Dispose false
+
+    member x.Dispose() =
+        GC.SuppressFinalize x
+        x.Dispose true
+
+    interface IDisposable with
+        member x.Dispose() = x.Dispose()
 
 
 [<AbstractClass>]

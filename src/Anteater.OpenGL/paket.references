@@ -2,6 +2,7 @@
 
 FSharp.Data.Adaptive
 Aardvark.Base
+Aardvark.Base.Runtime
 Aardvark.Base.FSharp
 
 Silk.NET.OpenGL

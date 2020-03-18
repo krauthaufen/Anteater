@@ -74,6 +74,9 @@ type ContextHandle private(glfw : Glfw, handle : nativeptr<WindowHandle>, dispos
             glfw.DestroyWindow(handle)
             handle <- NativePtr.zero
 
+    member x.GetProcAddress(name : string) =
+        glfw.GetProcAddress(name)
+
     interface IDisposable with
         member x.Dispose() = x.Dispose()
 

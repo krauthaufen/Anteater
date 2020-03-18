@@ -6,6 +6,7 @@ nuget FSharp.Core                           >= 4.6.2 lowest_matching: true
                                             
 nuget FSharp.Data.Adaptive                  ~> 0.0.18
 nuget Aardvark.Base                         ~> 5.0.5
+nuget Aardvark.Base.Runtime                 ~> 5.0.5
 nuget Aardvark.Base.FSharp                  ~> 5.0.5
 nuget Silk.NET.OpenGL                       ~> 1.0.0
 nuget Silk.NET.OpenGL.Extensions.ARB        ~> 1.0.0
