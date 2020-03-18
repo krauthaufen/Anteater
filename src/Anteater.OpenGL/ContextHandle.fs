@@ -21,9 +21,9 @@ module Glfw =
         do Silk.NET.Core.Platform.SilkManager.Register<Silk.NET.Core.Loader.GLSymbolLoader>(GlfwLoader a)
         a
 
-    let mutable private lastWindow : nativeptr<WindowHandle> = NativePtr.zero
+    //let mutable private lastWindow : nativeptr<WindowHandle> = NativePtr.zero
 
-    let internal createContext (v : Version) =
+    let internal createContext (sharedWith : nativeptr<WindowHandle>) (v : Version) =
         lock api (fun () ->
             api.DefaultWindowHints()
             api.WindowHint(WindowHintBool.Visible, false)
@@ -33,9 +33,9 @@ module Glfw =
                 api.WindowHint(WindowHintInt.ContextVersionMinor, v.Minor)
             else
                 api.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Any)
-            let win = api.CreateWindow(8,8, "", NativePtr.zero, lastWindow)
+            let win = api.CreateWindow(8,8, "", NativePtr.zero, sharedWith)
             if NativePtr.isNull win then failwithf "[GLFW] could not create context"
-            lastWindow <- win
+            //lastWindow <- win
             win
         )
 
@@ -50,6 +50,8 @@ type ContextHandle private(glfw : Glfw, handle : nativeptr<WindowHandle>, dispos
         match dict.TryGetValue h with
         | (true, v) -> Some v
         | _ -> None
+
+    member private x.Window = handle
 
     member x.IsCurrent =
         handle <> NativePtr.zero && glfw.GetCurrentContext() = handle
@@ -80,8 +82,12 @@ type ContextHandle private(glfw : Glfw, handle : nativeptr<WindowHandle>, dispos
     interface IDisposable with
         member x.Dispose() = x.Dispose()
 
-    static member Create(v : Version) =
-        new ContextHandle(Glfw.api, Glfw.createContext v, true)
+    static member Create(v : Version, ?sharedWith : ContextHandle) =
+        let ptr =
+            match sharedWith with
+            | Some c -> c.Window
+            | _ -> NativePtr.zero
+        new ContextHandle(Glfw.api, Glfw.createContext ptr v, true)
 
     static member FromWindow(windowHandle : nativeptr<WindowHandle>) =
         new ContextHandle(Glfw.api, windowHandle, false)

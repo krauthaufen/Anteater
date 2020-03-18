@@ -5,5 +5,6 @@ open Expecto.Impl
 
 [<EntryPoint>]
 let main args =
-    runTests ExpectoConfig.defaultConfig Buffers.simple |> ignore
+    let cfg = { ExpectoConfig.defaultConfig with ``parallel`` = false }
+    runTests cfg Buffers.simple |> ignore
     0

@@ -5,8 +5,10 @@ open Aardvark.Base
 open Anteater.OpenGL
 open Expecto
 open System.Runtime.InteropServices
+open System
 open System.IO
 open Anteater
+open Microsoft.FSharp.Reflection
 
 let path = 
     let arch =
@@ -24,9 +26,34 @@ let path =
 
 let test = NativeLibrary.TryLoad path 
 
-let inline deviceTest (name : string) (action : Device -> unit) =
+let inline deviceTest (name : string) (features : OpenGLFeatures) (action : Device -> unit) =
     testCase name (fun () ->
-        use d = new OpenGLDevice { version = System.Version(4,1); queues = 1; nVidia = false }
+        use d = new OpenGLDevice { features = features; queues = 1; nVidia = false }
         action d
     ) 
 
+
+let allFeatures(version : Version) =
+    let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true)
+
+    let rec all (i : int) (f : Reflection.PropertyInfo[]) =
+        if i >= f.Length then
+            [[]]
+        elif f.[i].PropertyType = typeof<bool> then
+            let rest = all (i+1) f
+            rest |> List.collect (fun r ->
+                [
+                    (true :> obj) :: r
+                    (false :> obj) :: r
+                ]
+            )
+        elif f.[i].PropertyType = typeof<Version> then
+            all (i+1) f |> List.map (fun r -> (version :> obj) :: r)
+        else 
+            failwith "non boolean field"
+            
+
+    all 0 fields |> List.map (fun f ->
+        FSharpValue.MakeRecord(typeof<OpenGLFeatures>, Seq.toArray (Seq.cast<obj> f), true)
+        |> unbox<OpenGLFeatures>
+    )

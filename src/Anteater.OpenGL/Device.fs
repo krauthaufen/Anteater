@@ -16,11 +16,52 @@ open Silk.NET.Core.Native
 
 #nowarn "9"
 
+[<StructuredFormatDisplay("{AsString}")>]
+type OpenGLFeatures =
+    {
+        version         : Version
+        directState     : bool
+        copyBuffer      : bool
+        bufferStorage   : bool
+    }
+
+    member private x.AsString = x.ToString()
+    override x.ToString() =
+        let exts =
+            [
+                if x.directState then yield "DirectStateAccess"
+                if x.copyBuffer then yield "CopyBuffer"
+                if x.bufferStorage then yield "BufferStorage"
+            ]
+
+        match exts with
+        | [] -> sprintf "OpenGL %A" x.version
+        | _ -> String.concat "; " exts |> sprintf "OpenGL %A { %s }" x.version
+
+    
+    static member None =
+        {
+            version         = Version(4,1)
+            directState     = false
+            copyBuffer      = false
+            bufferStorage   = false
+        }
+
+    static member Default =
+        {
+            version         = Version(4,1)
+            directState     = true
+            copyBuffer      = true
+            bufferStorage   = true
+        }
+
+        
+
 type DeviceConfig =
     {
-        version : Version
-        nVidia : bool
-        queues : int
+        nVidia      : bool
+        queues      : int
+        features    : OpenGLFeatures
     }
 
 
@@ -32,6 +73,7 @@ type DeviceInfo =
         glsl        : Version
 
         extensions  : Set<string>
+        features    : OpenGLFeatures
     }
 
 module DeviceInfo =
@@ -43,7 +85,7 @@ module DeviceInfo =
 
 
 
-    let read (gl : GL) =
+    let read (gl : GL) (cfg : DeviceConfig) =
 
         let glsl =
             let glsl = gl.GetString(StringName.ShadingLanguageVersion)
@@ -64,15 +106,24 @@ module DeviceInfo =
                 Version(0, 0)
 
         let glsl = Version(glsl.Major, glsl.Minor / 10, glsl.Minor % 10)
-
+        let version = Version(gl.GetInteger(GetPName.MajorVersion), gl.GetInteger(GetPName.MinorVersion))
+        let extensions = Seq.init (gl.GetInteger GetPName.NumExtensions) (fun i -> gl.GetString(StringName.Extensions, uint32 i)) |> Set.ofSeq
         {
             vendor = gl.GetString(StringName.Vendor)
             renderer = gl.GetString(StringName.Renderer)
-            version = Version(gl.GetInteger(GetPName.MajorVersion), gl.GetInteger(GetPName.MinorVersion))
+            version = version
             glsl = glsl
 
-            extensions = Seq.init (gl.GetInteger GetPName.NumExtensions) (fun i -> gl.GetString(StringName.Extensions, uint32 i)) |> Set.ofSeq
+            extensions = extensions
+            features = 
+                {
+                    version = version
+                    directState = cfg.features.directState && fst (gl.TryGetExtension<ArbDirectStateAccess>())
+                    copyBuffer = cfg.features.copyBuffer && fst (gl.TryGetExtension<ArbCopyBuffer>())
+                    bufferStorage = cfg.features.bufferStorage && fst (gl.TryGetExtension<ArbBufferStorage>())
+                }
         }
+
 
 type OpenGLDevice(cfg : DeviceConfig) =
     inherit Device()
@@ -103,9 +154,13 @@ type OpenGLDevice(cfg : DeviceConfig) =
             ctx.ReleaseCurrent()
 
     let contexts =
-        Array.init (max cfg.queues 1) (fun i ->
-            ContextHandle.Create(cfg.version)
-        )
+        let res = Array.zeroCreate (max cfg.queues 1)
+        let mutable last = None
+        for i in 0 .. res.Length - 1 do
+            let c = ContextHandle.Create(cfg.features.version, ?sharedWith = last)
+            res.[i] <- c
+            last <- Some c
+        res
         
     let gl = GL.GetApi()
 
@@ -114,6 +169,12 @@ type OpenGLDevice(cfg : DeviceConfig) =
         try action()
         finally contexts.[0].ReleaseCurrent()
         
+    let enabledExtensions =
+        HashSet.ofList [
+            if cfg.features.directState then yield typeof<ArbDirectStateAccess>
+            if cfg.features.copyBuffer then yield typeof<ArbCopyBuffer>
+            if cfg.features.bufferStorage then yield typeof<ArbBufferStorage>
+        ]
 
     let functionTable, extensions =
         useContext (fun () ->
@@ -137,27 +198,28 @@ type OpenGLDevice(cfg : DeviceConfig) =
 
             let getExt = typeof<GL>.GetMethod "TryGetExtension"
             for e in extTypes do
-                let m = getExt.MakeGenericMethod [| e |]
-                let arr = [| null |]
-                let res = m.Invoke(gl, arr) |> unbox<bool>
-                if res then
-                    extensions.[e] <- arr.[0]
-                    let all = e.GetMethods(Reflection.BindingFlags.Public ||| Reflection.BindingFlags.Instance)
-                    for a in all do
-                        let atts = a.GetCustomAttributes(typeof<Ultz.SuperInvoke.NativeApiAttribute>, true)
-                        if atts.Length > 0 then
-                            for a in atts do
-                                let a = unbox<Ultz.SuperInvoke.NativeApiAttribute> a
-                                let ptr = ctx.GetProcAddress a.EntryPoint
-                                if ptr <> 0n then
-                                    table.[a.EntryPoint] <- ptr
+                if enabledExtensions.Contains e then
+                    let m = getExt.MakeGenericMethod [| e |]
+                    let arr = [| null |]
+                    let res = m.Invoke(gl, arr) |> unbox<bool>
+                    if res then
+                        extensions.[e] <- arr.[0]
+                        let all = e.GetMethods(Reflection.BindingFlags.Public ||| Reflection.BindingFlags.Instance)
+                        for a in all do
+                            let atts = a.GetCustomAttributes(typeof<Ultz.SuperInvoke.NativeApiAttribute>, true)
+                            if atts.Length > 0 then
+                                for a in atts do
+                                    let a = unbox<Ultz.SuperInvoke.NativeApiAttribute> a
+                                    let ptr = ctx.GetProcAddress a.EntryPoint
+                                    if ptr <> 0n then
+                                        table.[a.EntryPoint] <- ptr
 
             table, extensions
         )
 
     let info =
         useContext (fun () ->
-            DeviceInfo.read gl
+            DeviceInfo.read gl cfg
         )
 
     let directState =
@@ -198,7 +260,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
     member x.CopyBuffer = copyBuffer
 
     member x.Info = info
-
+    member x.Features = info.features
 
     override x.Name = info.renderer
 
@@ -301,6 +363,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
         )
 
     override x.CreateCommandStream() =
+        //new ManagedOpenGLCommandStream(x) :> CommandStream
         if RuntimeInformation.ProcessArchitecture = Architecture.X64 then new NativeGLCommandStream(x) :> CommandStream
         else new ManagedOpenGLCommandStream(x) :> CommandStream
 
@@ -412,9 +475,7 @@ and NativeGLCommandStream(device : OpenGLDevice) =
     let memory = new ExecutableStream()
     let assembler = AssemblerStream.ofStream memory
     let mutable retOffset = 0L
-
     let mutable wrapped : Option<nativeint * ExecutableStream * (unit -> unit)> = None
-    //do assembler.Push assembler.CalleeSavedRegisters.[0]
 
     let preamble = System.Collections.Generic.List<nativeint * (unit -> (unit -> unit))>()
 
@@ -427,7 +488,161 @@ and NativeGLCommandStream(device : OpenGLDevice) =
         )
         ptr
 
+    member private x.Copy(src : nativeint, dst : BufferRange, srcIndirect : bool) =
+        let size = dst.Size
+        if size > 0L then
+            memory.Position <- retOffset
+
+            let dstOffset = dst.Offset
+            let dh = unbox<uint32> dst.Buffer.Handle
+            let mapDirect = device.GetProcAddress "glMapNamedBufferRange"
+            let unmapDirect = device.GetProcAddress "glUnmapNamedBuffer"
+            let bind = device.GetProcAddress "glBindBuffer"
+            let map = device.GetProcAddress "glMapBufferRange"
+            let unmap = device.GetProcAddress "glUnmapBuffer"
+
+            if mapDirect <> 0n then
+                // map
+                assembler.BeginCall(4)
+                assembler.PushArg (int (MapBufferAccessMask.MapWriteBit ||| MapBufferAccessMask.MapInvalidateRangeBit))
+                assembler.PushArg (nativeint size)
+                assembler.PushArg (nativeint dstOffset)
+                assembler.PushArg (int dh)
+                assembler.Call mapDirect
+                assembler.Mov(assembler.CalleeSavedRegisters.[0], assembler.ReturnRegister)
+
+                // memcpy
+                assembler.BeginCall(3)
+                assembler.PushArg(nativeint size)
+                if srcIndirect then assembler.PushPtrArg src
+                else assembler.PushArg src
+                assembler.PushArg src
+                assembler.Mov(assembler.ArgumentRegisters.[0], assembler.CalleeSavedRegisters.[0])
+                assembler.Call(memcpy.Value.Handle)
+
+                // unmap
+                assembler.BeginCall(1)
+                assembler.PushArg (int dh)
+                assembler.Call(unmapDirect)
+
+            else
+                // bind
+                assembler.BeginCall(2)
+                assembler.PushArg(int dh)
+                assembler.PushArg(int BufferTargetARB.ArrayBuffer)
+                assembler.Call(bind)
+                
+                // map
+                assembler.BeginCall(4)
+                assembler.PushArg (int (MapBufferAccessMask.MapWriteBit ||| MapBufferAccessMask.MapInvalidateRangeBit))
+                assembler.PushArg (nativeint size)
+                assembler.PushArg (nativeint dstOffset)
+                assembler.PushArg (int BufferTargetARB.ArrayBuffer)
+                assembler.Call map
+                assembler.Mov(assembler.CalleeSavedRegisters.[0], assembler.ReturnRegister)
+                
+                // memcpy
+                assembler.BeginCall(3)
+                assembler.PushArg(nativeint size)
+                if srcIndirect then assembler.PushPtrArg src
+                else assembler.PushArg src
+                assembler.PushArg 0n
+                assembler.Mov(assembler.ArgumentRegisters.[0], assembler.CalleeSavedRegisters.[0])
+                assembler.Call(memcpy.Value.Handle)
+                
+                // unmap
+                assembler.BeginCall(1)
+                assembler.PushArg (int BufferTargetARB.ArrayBuffer)
+                assembler.Call(unmap)
+
+
+                // unbind
+                assembler.BeginCall(2)
+                assembler.PushArg 0
+                assembler.PushArg(int BufferTargetARB.ArrayBuffer)
+                assembler.Call(bind)
+                
+            retOffset <- memory.Position
+            assembler.Ret()
         
+    member private x.Copy(src : BufferRange, dst : nativeint, dstIndirect : bool) =
+        let size = src.Size
+        if size > 0L then
+            memory.Position <- retOffset
+
+            let srcOffset = src.Offset
+            let sh = unbox<uint32> src.Buffer.Handle
+            let bind = device.GetProcAddress "glBindBuffer"
+            let map = device.GetProcAddress "glMapBufferRange"
+            let unmap = device.GetProcAddress "glUnmapBuffer"
+            let mapDirect = device.GetProcAddress "glMapNamedBufferRange"
+            let unmapDirect = device.GetProcAddress "glUnmapNamedBuffer"
+
+            if mapDirect <> 0n then
+                // map
+                assembler.BeginCall(4)
+                assembler.PushArg (int (MapBufferAccessMask.MapReadBit))
+                assembler.PushArg (nativeint size)
+                assembler.PushArg (nativeint srcOffset)
+                assembler.PushArg (int sh)
+                assembler.Call mapDirect
+                assembler.Mov(assembler.CalleeSavedRegisters.[0], assembler.ReturnRegister)
+
+                // memcpy
+                assembler.BeginCall(3)
+                assembler.PushArg(nativeint size)
+                assembler.PushArg dst
+                assembler.Mov(assembler.ArgumentRegisters.[1], assembler.CalleeSavedRegisters.[0])
+                if dstIndirect then assembler.PushPtrArg dst
+                else assembler.PushArg dst
+                assembler.Call(memcpy.Value.Handle)
+
+                // unmap
+                assembler.BeginCall(1)
+                assembler.PushArg (int sh)
+                assembler.Call(unmapDirect)
+
+            else
+                // bind
+                assembler.BeginCall(2)
+                assembler.PushArg(int sh)
+                assembler.PushArg(int BufferTargetARB.ArrayBuffer)
+                assembler.Call(bind)
+                
+                // map
+                assembler.BeginCall(4)
+                assembler.PushArg (int (MapBufferAccessMask.MapReadBit))
+                assembler.PushArg (nativeint size)
+                assembler.PushArg (nativeint srcOffset)
+                assembler.PushArg (int BufferTargetARB.ArrayBuffer)
+                assembler.Call map
+                assembler.Mov(assembler.CalleeSavedRegisters.[0], assembler.ReturnRegister)
+                
+                // memcpy
+                assembler.BeginCall(3)
+                assembler.PushArg(nativeint size)
+                assembler.PushArg dst
+                assembler.Mov(assembler.ArgumentRegisters.[1], assembler.CalleeSavedRegisters.[0])
+                if dstIndirect then assembler.PushPtrArg dst
+                else assembler.PushArg dst
+                assembler.Call(memcpy.Value.Handle)
+                
+                // unmap
+                assembler.BeginCall(1)
+                assembler.PushArg (int BufferTargetARB.ArrayBuffer)
+                assembler.Call(unmap)
+
+
+                // unbind
+                assembler.BeginCall(2)
+                assembler.PushArg 0
+                assembler.PushArg(int BufferTargetARB.ArrayBuffer)
+                assembler.Call(bind)
+                
+            retOffset <- memory.Position
+            assembler.Ret()
+
+
     override x.Dispose(_) =
         memory.Dispose()
         for (ptr, _) in preamble do Marshal.FreeHGlobal ptr
@@ -561,88 +776,8 @@ and NativeGLCommandStream(device : OpenGLDevice) =
             retOffset <- memory.Position
             assembler.Ret()
 
-    member private x.Copy(src : nativeint, dst : BufferRange, srcIndirect : bool) =
-        let size = dst.Size
-        if size > 0L then
-            memory.Position <- retOffset
-
-            let dstOffset = dst.Offset
-            let dh = unbox<uint32> dst.Buffer.Handle
-            let mapDirect = device.GetProcAddress "glMapNamedBufferRange"
-            let unmapDirect = device.GetProcAddress "glUnmapNamedBuffer"
-            if mapDirect <> 0n then
-                // map
-                assembler.BeginCall(4)
-                assembler.PushArg (int (MapBufferAccessMask.MapWriteBit ||| MapBufferAccessMask.MapInvalidateRangeBit))
-                assembler.PushArg (nativeint size)
-                assembler.PushArg (nativeint dstOffset)
-                assembler.PushArg (int dh)
-                assembler.Call mapDirect
-                assembler.Mov(assembler.CalleeSavedRegisters.[0], assembler.ReturnRegister)
-
-                // memcpy
-                assembler.BeginCall(3)
-                assembler.PushArg(nativeint size)
-                if srcIndirect then assembler.PushPtrArg src
-                else assembler.PushArg src
-                assembler.PushArg src
-                assembler.Mov(assembler.ArgumentRegisters.[0], assembler.CalleeSavedRegisters.[0])
-                assembler.Call(memcpy.Value.Handle)
-
-                // unmap
-                assembler.BeginCall(1)
-                assembler.PushArg (int dh)
-                assembler.Call(unmapDirect)
-
-            else
-                failwith "not implemented"
-                
-            retOffset <- memory.Position
-            assembler.Ret()
-
     override x.Copy(src : nativeint, dst : BufferRange) =
         x.Copy(src, dst, false)
-
-    member private x.Copy(src : BufferRange, dst : nativeint, dstIndirect : bool) =
-        let size = src.Size
-        if size > 0L then
-            memory.Position <- retOffset
-
-            let srcOffset = src.Offset
-            let sh = unbox<uint32> src.Buffer.Handle
-            match device.DirectState with
-            | Some _ext ->
-                let map = device.GetProcAddress "glMapNamedBufferRange"
-                let unmap = device.GetProcAddress "glUnmapNamedBuffer"
-
-                // map
-                assembler.BeginCall(4)
-                assembler.PushArg (int (MapBufferAccessMask.MapReadBit))
-                assembler.PushArg (nativeint size)
-                assembler.PushArg (nativeint srcOffset)
-                assembler.PushArg (int sh)
-                assembler.Call map
-                assembler.Mov(assembler.CalleeSavedRegisters.[0], assembler.ReturnRegister)
-
-                // memcpy
-                assembler.BeginCall(3)
-                assembler.PushArg(nativeint size)
-                assembler.PushArg dst
-                assembler.Mov(assembler.ArgumentRegisters.[1], assembler.CalleeSavedRegisters.[0])
-                if dstIndirect then assembler.PushPtrArg dst
-                else assembler.PushArg dst
-                assembler.Call(memcpy.Value.Handle)
-
-                // unmap
-                assembler.BeginCall(1)
-                assembler.PushArg (int sh)
-                assembler.Call(unmap)
-
-            | None -> 
-                failwith "not implemented"
-                
-            retOffset <- memory.Position
-            assembler.Ret()
 
     override x.Copy(src : BufferRange, dst : nativeint) =
         x.Copy(src, dst, false)
@@ -663,7 +798,7 @@ and NativeGLCommandStream(device : OpenGLDevice) =
             )
         x.Copy(src, handle, true)
 
-    member x.Run(gl : GL) =
+    member x.Run(_gl : GL) =
         let run = 
             match wrapped with
             | Some (ptr, _, run) when ptr = memory.Pointer -> run
@@ -674,7 +809,6 @@ and NativeGLCommandStream(device : OpenGLDevice) =
 
                 let e = new ExecutableStream()
                 let s = AssemblerStream.ofStream e
-
                 for r in assembler.CalleeSavedRegisters do s.Push r
                 s.BeginCall(0)
                 s.Call(memory.Pointer)
@@ -685,11 +819,12 @@ and NativeGLCommandStream(device : OpenGLDevice) =
                 wrapped <- Some (memory.Pointer, e, run)
                 run
 
-        let release = System.Collections.Generic.List(preamble.Count)
+        let release = Array.zeroCreate preamble.Count
+        let mutable i = 0
         for (_, p) in preamble do
-            release.Add(p())
+            release.[i] <- p()
+            i <- i + 1
 
         run()
 
-        for r in release do
-            r()
+        for r in release do r()

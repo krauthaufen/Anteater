@@ -4,13 +4,12 @@ open Aardvark.Base
 open Anteater.OpenGL
 open Expecto
 open System
-do Aardvark.Init()
 
 [<Tests>]
 let simple = 
     testList "ContextCreation" [
 
-        deviceTest "create" (fun _ ->
+        deviceTest "create" OpenGLFeatures.Default (fun _ ->
             ()
         ) 
     ]
