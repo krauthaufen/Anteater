@@ -9,13 +9,13 @@ type BufferUsage =
     /// The Buffer will not be used at all.
     | None          = 0x000
     /// The Buffer will be used as VertexBuffer.
-    | Vertex  = 0x001
+    | Vertex        = 0x001
     /// The Buffer will be used as IndexBuffer.
-    | Index   = 0x002
+    | Index         = 0x002
     /// The Buffer will be used as StorageBuffer.
-    | Storage = 0x004
+    | Storage       = 0x004
     /// The Buffer will be used as IndirectBuffer.
-    | Indirect = 0x008
+    | Indirect      = 0x008
     /// The Buffer will be used as source of Copy operations.
     | CopySrc       = 0x008
     /// The Buffer will be used as destination of Copy operations.
