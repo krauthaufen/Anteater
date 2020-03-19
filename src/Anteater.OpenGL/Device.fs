@@ -171,10 +171,6 @@ type OpenGLDevice(cfg : DeviceConfig) =
     do if cfg.nVidia then DynamicLinker.tryLoadLibrary ("nvapi64" + libraryExtension) |> ignore
 
     
-    static let freeBuffer (this : OpenGLDevice) (handle : obj) =
-        this.Start(fun gl ->
-            gl.DeleteBuffer (unbox<uint32> handle)
-        )
         
     static let toBufferStorageMask (usage : BufferUsage) =
         let mutable res = BufferStorageMask.MapReadBit ||| BufferStorageMask.MapWriteBit
@@ -332,6 +328,16 @@ type OpenGLDevice(cfg : DeviceConfig) =
             thread
         )
 
+    
+    static let freeBuffer (this : OpenGLDevice) (handle : obj) =
+        this.Start(fun gl ->
+            gl.DeleteBuffer (unbox<uint32> handle)
+        )
+    static let freeImage (this : OpenGLDevice) (handle : obj) =
+        this.Start(fun gl ->
+            gl.DeleteTexture (unbox<uint32> handle)
+        )
+
     member x.DirectState = directState
     member x.BufferStorage = bufferStorage
     member x.CopyBuffer = copyBuffer
@@ -431,10 +437,55 @@ type OpenGLDevice(cfg : DeviceConfig) =
                     gl.BufferData(BufferTargetARB.ArrayBuffer, uint32 size, VoidPtr.zero, BufferUsageARB.StaticDraw)
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
 
-           
-
             new Anteater.Buffer(handle, size, usage, freeBuffer x)
         )
+
+
+
+    member x.CreateImage(dim : ImageDimension, format : ImageFormat, ?levels : int, ?slices : int, ?samples : int) : Image =
+        let isArray = Option.isSome slices
+        let levels = defaultArg levels 1
+        let samples = defaultArg samples 1
+        let slices = defaultArg slices 1
+        let fmt = unbox<InternalFormat> (int format)
+        x.Run (fun gl ->
+            let handle = gl.GenTexture()
+            match directState with
+            | Some ext ->
+                match dim with
+                | ImageDimension.Image1d s -> 
+                    if samples > 1 then failwith "[GL] cannot create multisampled 1D textures"
+                    if slices > 1 then ext.TextureStorage2D(handle, uint32 levels, fmt, uint32 s, uint32 slices)
+                    else ext.TextureStorage1D(handle, uint32 levels, fmt, uint32 s)
+
+                | ImageDimension.Image2d s ->
+                    if samples > 1 then
+                        if levels > 1 then failwith "[GL] multisampled textures may not have MipMapLevels"
+                        if slices > 1 then ext.TextureStorage3DMultisample(handle, uint32 samples, fmt, uint32 s.X, uint32 s.Y, uint32 slices, false)
+                        else ext.TextureStorage2DMultisample(handle, uint32 samples, fmt, uint32 s.X, uint32 s.Y, false)
+                    else
+                        if slices > 1 then ext.TextureStorage3D(handle, uint32 levels, fmt, uint32 s.X, uint32 s.Y, uint32 slices)
+                        else ext.TextureStorage2D(handle, uint32 levels, fmt, uint32 s.X, uint32 s.Y)
+
+                | ImageDimension.Image3d s ->
+                    if slices > 1 then failwith "[GL] cannot create 3d texture arrays"
+                    if samples > 1 then ext.TextureStorage3DMultisample(handle, uint32 samples, fmt, uint32 s.X, uint32 s.Y, uint32 s.Z, false)
+                    else ext.TextureStorage3D(handle, uint32 levels, fmt, uint32 s.X, uint32 s.Y, uint32 s.Z)
+
+                | ImageDimension.ImageCube s ->
+                    if samples > 1 then
+                        if levels > 1 then failwith "[GL] multisampled textures may not have MipMapLevels"
+                        ext.TextureStorage3DMultisample(handle, uint32 samples, fmt, uint32 s, uint32 s, uint32 (6 * slices), false)
+                    else 
+                        ext.TextureStorage3D(handle, uint32 levels, fmt, uint32 s, uint32 s, 6u)
+
+
+                new Image(handle, dim, format, levels, (if isArray then Some slices else None), samples, freeImage x)
+            | None ->
+                failwith ""
+        )
+
+           
 
     override x.CreateCommandStream() =
         createCommandStream x :> CommandStream

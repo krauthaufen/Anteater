@@ -15,7 +15,7 @@
   <ItemGroup>
     <None Include="paket.references" />
     <Compile Include="Buffer.fs" />
-    <Compile Include="Types.fs" />
+    <Compile Include="Image.fs" />
     <Compile Include="CommandStream.fs" />
     <Compile Include="Device.fs" />
     <Compile Include="CommandStreamExtensions.fs" />
