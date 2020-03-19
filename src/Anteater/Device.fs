@@ -1,39 +1,29 @@
 ﻿namespace Anteater
 
-open System
-open Aardvark.Base
+open System.Threading.Tasks
 open Anteater
 
 [<AbstractClass>]
-type CommandStream() =
-    abstract member Copy : src : BufferRange * dst : BufferRange -> unit
-    abstract member Copy : src : nativeint * dst : BufferRange -> unit
-    abstract member Copy : src : BufferRange * dst : nativeint -> unit
-    abstract member Copy<'T when 'T : unmanaged> : src : Memory<'T> * dst : BufferRange -> unit
-    abstract member Copy<'T when 'T : unmanaged> :  src : BufferRange * dst : Memory<'T> -> unit
-    abstract member Dispose : disposing : bool -> unit
-
-    override x.Finalize() =
-        x.Dispose false
-
-    member x.Dispose() =
-        GC.SuppressFinalize x
-        x.Dispose true
-
-    interface IDisposable with
-        member x.Dispose() = x.Dispose()
-
-
-[<AbstractClass>]
 type Device() =
+    /// A human-readable name for the Device.
     abstract member Name : string
 
+    /// Creates a new Buffer for the given usage with the given size.
     abstract member CreateBuffer : size : int64 * usage : BufferUsage -> Buffer
+
+    /// Creates a new CommandStream for executing commands.
     abstract member CreateCommandStream : unit -> CommandStream
 
+    /// Runs the given CommandStream synchronously.
     abstract member Run : CommandStream -> unit
-    abstract member StartAsTask : CommandStream -> System.Threading.Tasks.Task
+
+    /// Runs the given CommandStream as a Task.
+    abstract member StartAsTask : CommandStream -> Task
+
+    /// Runs the given CommandStream without waiting for completion.
     abstract member Start : CommandStream -> unit
+
+    /// Releases all resources associated to the device.
     abstract member Dispose : unit -> unit
 
     interface System.IDisposable with

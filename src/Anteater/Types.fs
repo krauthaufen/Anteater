@@ -11,13 +11,29 @@ type ImageDimension =
     | Image3d of size : V3i
     | ImageCube of size : int
 
-module ImageDimension =
-    let inline size (d : ImageDimension) =
-        match d with
+    member x.Size =
+        match x with
         | ImageDimension.Image1d s -> V3i(s,1,1)
         | ImageDimension.Image2d s -> V3i(s, 1)
         | ImageDimension.Image3d s -> s
         | ImageDimension.ImageCube s -> V3i(s,s,1)
+       
+    static member (/) (s : ImageDimension, d : int) =
+        match s with
+        | Image1d s -> Image1d ((s / d) |> max 1)
+        | Image2d s -> Image2d ((s / d) |> max 1)
+        | Image3d s -> Image3d ((s / d) |> max 1)
+        | ImageCube s -> ImageCube ((s / d) |> max 1)
+
+    static member (*) (s : ImageDimension, d : int) =
+        match s with
+        | Image1d s -> Image1d ((s * d) |> max 1)
+        | Image2d s -> Image2d ((s * d) |> max 1)
+        | Image3d s -> Image3d ((s * d) |> max 1)
+        | ImageCube s -> ImageCube ((s * d) |> max 1)
+
+module ImageDimension =
+    let inline size (d : ImageDimension) = d.Size
 
 
 [<RequireQualifiedAccess>]

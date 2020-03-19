@@ -17,6 +17,8 @@
     <Compile Include="Utilities.fs" />
     <Compile Include="ContextHandle.fs" />
     <Compile Include="Device.fs" />
+    <Compile Include="CommandStreams\ManagedCommandStream.fs" />
+    <Compile Include="CommandStreams\NativeCommandStream.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Anteater\Anteater.fsproj" />

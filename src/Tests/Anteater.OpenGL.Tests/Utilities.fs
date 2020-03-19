@@ -57,3 +57,18 @@ let allFeatures(version : Version) =
         FSharpValue.MakeRecord(typeof<OpenGLFeatures>, Seq.toArray (Seq.cast<obj> f), true)
         |> unbox<OpenGLFeatures>
     )
+
+
+open FsCheck
+type VersionGenerator =
+    static member Version() =
+        Gen.elements [
+            Version(3,3)
+            Version(4,1)
+            Version(4,3)
+            Version(4,5)
+        ]
+        |> Arb.fromGen
+
+
+let cfg = { FsCheckConfig.defaultConfig with maxTest = 30; arbitrary = [ typeof<VersionGenerator> ] }
