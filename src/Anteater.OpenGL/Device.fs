@@ -687,11 +687,13 @@ type OpenGLDevice(cfg : DeviceConfig) =
 
     override x.CreateBuffer(size : int64, usage : BufferUsage) =
         x.Run (fun gl ->
-            let handle = gl.GenBuffer()
             match directState with
             | Some ext ->
+                let handle = ext.CreateBuffer()
                 ext.NamedBufferStorage(handle, uint32 size, VoidPtr.zero, toBufferStorageMask usage)
+                new Anteater.Buffer(handle, size, usage, freeBuffer x)
             | None -> 
+                let handle = gl.GenBuffer()
                 match bufferStorage with
                 | Some ext ->
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, handle)
@@ -703,7 +705,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
                     gl.BufferData(BufferTargetARB.ArrayBuffer, uint32 size, VoidPtr.zero, BufferUsageARB.StaticDraw)
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
 
-            new Anteater.Buffer(handle, size, usage, freeBuffer x)
+                new Anteater.Buffer(handle, size, usage, freeBuffer x)
         )
 
 

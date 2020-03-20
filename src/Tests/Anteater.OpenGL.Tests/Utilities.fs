@@ -24,17 +24,10 @@ let path =
     Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "..", "lib", "Native", plat)
 
 
-let test = NativeLibrary.TryLoad path 
-
-let inline deviceTest (name : string) (features : OpenGLFeatures) (action : Device -> unit) =
-    testCase name (fun () ->
-        use d = new OpenGLDevice { features = features; queues = 1; nVidia = false; debug = true }
-        action d
-    ) 
-
+do NativeLibrary.TryLoad path |> ignore
 
 let allFeatures(version : Version) =
-    let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true)
+    let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true) |> Array.rev
 
     let rec all (i : int) (f : Reflection.PropertyInfo[]) =
         if i >= f.Length then
@@ -43,8 +36,8 @@ let allFeatures(version : Version) =
             let rest = all (i+1) f
             rest |> List.collect (fun r ->
                 [
-                    (true :> obj) :: r
                     (false :> obj) :: r
+                    (true :> obj) :: r
                 ]
             )
         elif f.[i].PropertyType = typeof<Version> then
@@ -53,13 +46,14 @@ let allFeatures(version : Version) =
             failwith "non boolean field"
             
 
-    all 0 fields |> List.map (fun f ->
-        FSharpValue.MakeRecord(typeof<OpenGLFeatures>, Seq.toArray (Seq.cast<obj> f), true)
+    all 0 fields |> Seq.map (fun f ->
+        FSharpValue.MakeRecord(typeof<OpenGLFeatures>, Array.rev (Seq.toArray (Seq.cast<obj> f)), true)
         |> unbox<OpenGLFeatures>
     )
 
 
 open FsCheck
+
 type VersionGenerator =
     static member Version() =
         Gen.elements [

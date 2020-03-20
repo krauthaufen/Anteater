@@ -8,7 +8,7 @@ open System.Runtime.InteropServices
 open Microsoft.FSharp.Reflection
 
 let allFeatures(version : Version) =
-    let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true)
+    let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true) |> Array.rev
 
     let rec all (i : int) (f : Reflection.PropertyInfo[]) =
         if i >= f.Length then
@@ -17,8 +17,8 @@ let allFeatures(version : Version) =
             let rest = all (i+1) f
             rest |> List.collect (fun r ->
                 [
-                    (true :> obj) :: r
                     (false :> obj) :: r
+                    (true :> obj) :: r
                 ]
             )
         elif f.[i].PropertyType = typeof<Version> then
@@ -28,7 +28,7 @@ let allFeatures(version : Version) =
             
 
     all 0 fields |> Seq.map (fun f ->
-        FSharpValue.MakeRecord(typeof<OpenGLFeatures>, Seq.toArray (Seq.cast<obj> f), true)
+        FSharpValue.MakeRecord(typeof<OpenGLFeatures>, Array.rev (Seq.toArray (Seq.cast<obj> f)), true)
         |> unbox<OpenGLFeatures>
     )
 
@@ -44,11 +44,13 @@ let main argv =
     for f in allFeatures (Version(4,1)) do
         use device = 
             new OpenGLDevice { 
-                nVidia = false
+                nVidia = true
                 queues = 2
                 features = f
                 debug = true
             }
+
+        device.DebugSeverity <- 2
 
         Log.start "%A" device.Features
 
