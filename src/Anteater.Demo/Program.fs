@@ -36,6 +36,11 @@ let allFeatures(version : Version) =
 [<EntryPoint;STAThread>]
 let main argv = 
     Log.start "Buffer copy and up/download"
+
+    let features = 
+        { OpenGLFeatures.Default with textureStorage = false; directState = false }
+
+
     for f in allFeatures (Version(4,1)) do
         use device = 
             new OpenGLDevice { 
@@ -44,8 +49,62 @@ let main argv =
                 features = f
             }
 
+        device.DebugOutput <- true
+
         Log.start "%A" device.Features
 
+        
+
+        let allTargets =
+            [|
+                TextureTarget.Texture1D
+                TextureTarget.Texture1DArray
+                
+                TextureTarget.Texture2D
+                TextureTarget.Texture2DArray
+                TextureTarget.Texture2DMultisample
+                TextureTarget.Texture2DMultisampleArray
+
+                TextureTarget.TextureCubeMap
+                TextureTarget.TextureCubeMapArray
+
+                TextureTarget.Texture3D
+            |]
+
+        let findTargets (img : Image) =
+            device.Run (fun gl ->
+                let _err = gl.GetError()
+                allTargets |> Array.filter (fun t ->
+                    gl.BindTexture(t, unbox<uint32> img.Handle)
+                    let err = gl.GetError()
+                    gl.BindTexture(t, 0u)
+                    err = GLEnum.None
+                )
+            )
+
+        let textures =
+            [|
+                TextureTarget.Texture1D, device.CreateImage(ImageDimension.Image1d 128, ImageFormat.Rgba8UNorm, 2)
+                TextureTarget.Texture1DArray, device.CreateImage(ImageDimension.Image1d 1024, ImageFormat.Rgba8UNorm, 11, 5)
+                TextureTarget.Texture2D, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11)
+                TextureTarget.Texture2DArray, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11, 5)
+                TextureTarget.Texture2DMultisample, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11, samples = 4)
+                TextureTarget.Texture2DMultisampleArray, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11, 5, samples = 4)
+                TextureTarget.TextureCubeMap, device.CreateImage(ImageDimension.ImageCube 1024, ImageFormat.Rgba8UNorm, 11)
+                TextureTarget.TextureCubeMapArray, device.CreateImage(ImageDimension.ImageCube 1024, ImageFormat.Rgba8UNorm, 11, 2)
+                TextureTarget.Texture3D, device.CreateImage(ImageDimension.Image3d(V3i(128,128,128)), ImageFormat.Rgba8UNorm, 2)
+            |]
+            
+        device.DebugOutput <- false
+
+        for (expected, img) in textures do
+            let real = findTargets img
+            if not (Array.contains expected real) then
+                Log.warn "%A broken (was %A)" expected real
+                
+            img.Dispose()
+
+        device.DebugOutput <- true
 
         use buffer = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)
         use buffer2 = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)

@@ -349,7 +349,10 @@ type internal NativeOpenGLCommandStream(device : OpenGLDevice) =
             )
         x.Copy(src, handle, true)
 
-    
+
+    override x.Copy(src : ImageSubresourceRegion, dst : ImageSubresourceRegion) : unit =
+        failwith "not implemented"
+        
     override x.Run(ctx : ContextHandle, gl : GL) =
         let run = 
             match wrapped with

@@ -13,12 +13,23 @@ type ImageDimension =
     | Image3d of size : V3i
     | ImageCube of size : int
 
-    member x.Size =
+    member x.GetImageSize(count : int) =
         match x with
-        | ImageDimension.Image1d s -> V3i(s,1,1)
-        | ImageDimension.Image2d s -> V3i(s, 1)
+        | ImageDimension.Image1d s -> V3i(s, count, 1)
+        | ImageDimension.Image2d s -> V3i(s, count)
         | ImageDimension.Image3d s -> s
-        | ImageDimension.ImageCube s -> V3i(s,s,1)
+        | ImageDimension.ImageCube s -> 
+            if count > 1 then V3i(s, s, count * 6)
+            else V3i(s, s, 1)
+       
+    member x.GetStorageSize(count : int) =
+        match x with
+        | ImageDimension.Image1d s -> V3i(s, count, 1)
+        | ImageDimension.Image2d s -> V3i(s, count)
+        | ImageDimension.Image3d s -> s
+        | ImageDimension.ImageCube s -> 
+            if count > 1 then V3i(s, s, count * 6)
+            else V3i(s,s,1)
        
     static member (/) (s : ImageDimension, d : int) =
         match s with
@@ -33,9 +44,6 @@ type ImageDimension =
         | Image2d s -> Image2d ((s * d) |> max 1)
         | Image3d s -> Image3d ((s * d) |> max 1)
         | ImageCube s -> ImageCube ((s * d) |> max 1)
-
-module ImageDimension =
-    let inline size (d : ImageDimension) = d.Size
 
 [<RequireQualifiedAccess>]
 type ColorFormat =
@@ -294,11 +302,12 @@ type ImageSubresourceRange =
 
 type ImageSubresourceLevel = 
     inherit ImageSubresourceRange
+    inherit ImageSubresourceRegion
     abstract member Level : int
     abstract member Size : V3i
     abstract member Item : slice : int -> ImageSubresource with get
     abstract member GetSlice : minSlice : option<int> * maxSlice : option<int> -> ImageSubresourceLevel
-
+    
 type ImageSubresourceSlice = 
     inherit ImageSubresourceRange
     abstract member Slice : int
@@ -306,18 +315,27 @@ type ImageSubresourceSlice =
     abstract member GetSlice : minLevel : option<int> * maxLevel : option<int> -> ImageSubresourceSlice
 
 type ImageSubresource = 
-    inherit ImageSubresourceRange
+    inherit ImageSubresourceLevel
     inherit ImageSubresourceSlice
+    
+type ImageSubresourceRegion =
+    abstract member Resource : ImageSubresourceLevel
+    abstract member Offset : V3i
+    abstract member Size : V3i
+    
 
 type Image(handle : obj, dimension : ImageDimension, format : ImageFormat, levels : int, slices : option<int>, samples : int, release : obj -> unit) =
     let mutable handle = handle
 
+    let sliceCount = defaultArg slices 1
+
     member x.Handle = handle
-    member x.Size = ImageDimension.size dimension
+    member x.Size = dimension.GetImageSize 1
+    
     member x.Dimension = dimension
     member x.Format = format
     member x.Levels = levels
-    member x.Slices = defaultArg slices 1
+    member x.Slices = sliceCount
     member x.Samples = samples
     member x.IsArray = Option.isSome slices
     
@@ -364,7 +382,7 @@ type Image(handle : obj, dimension : ImageDimension, format : ImageFormat, level
     
 
 [<AutoOpen>]
-module internal ImageSubresourceImplementations =
+module ImageSubresourceImplementations =
     
     let private _sliceTest (img : Image) =
         // Image.Item
@@ -390,7 +408,7 @@ module internal ImageSubresourceImplementations =
         let _ : ImageSubresource        = l.[0]
 
         // ImageSubResourceLevel.GetSlice
-        let _ : ImageSubresourceLevel   = l.[*]
+        let _ : ImageSubresourceLevel   = l.[0..]
 
         // ImageSubResourceSlice.Item
         let _ : ImageSubresource        = s.[0]
@@ -400,7 +418,7 @@ module internal ImageSubresourceImplementations =
 
         ()
 
-    type ImgSubresourceRange(img : Image, aspect : ImageAspect, l0 : int, levels : int, s0 : int, slices : int) =
+    type internal ImgSubresourceRange(img : Image, aspect : ImageAspect, l0 : int, levels : int, s0 : int, slices : int) =
         do
             if l0 < 0 || levels < 0 || l0 + levels > img.Levels then raise <| IndexOutOfRangeException "Level"
             if s0 < 0 || slices < 0 || s0 + slices > img.Slices then raise <| IndexOutOfRangeException "Slice"
@@ -458,15 +476,23 @@ module internal ImageSubresourceImplementations =
 
                 ImgSubresourceSlice(img, aspect, l0 + minLevel, lc, s0 + slice) :> ImageSubresourceSlice
 
-    type ImgSubresourceLevel(img : Image, aspect : ImageAspect, l0 : int, s0 : int, slices : int) =
+    type internal ImgSubresourceLevel(img : Image, aspect : ImageAspect, l0 : int, s0 : int, slices : int) =
         inherit ImgSubresourceRange(img, aspect, l0, 1, s0, slices)
+        member x.Size =
+            let s = img.Size
+            let f = 1 <<< l0
+            V3i(max 1 (s.X / f), max 1 (s.Y / f), max 1 (s.Z / f))
+
+
+        interface ImageSubresourceRegion with
+            member x.Resource = x :> ImageSubresourceLevel
+            member x.Offset = V3i.Zero
+            member x.Size = x.Size
+
         interface ImageSubresourceLevel with
             member x.Level = l0
 
-            member x.Size =
-                let s = img.Size
-                let f = 1 <<< l0
-                V3i(max 1 (s.X / f), max 1 (s.Y / f), max 1 (s.Z / f))
+            member x.Size : V3i = x.Size
 
             member x.Item
                 with get(slice : int) = 
@@ -480,7 +506,7 @@ module internal ImageSubresourceImplementations =
                 if minSlice < 0 || sc < 0 || minSlice + sc > slices then raise <| IndexOutOfRangeException("Slice")
                 ImgSubresourceLevel(img, aspect, l0, s0 + minSlice, sc) :> ImageSubresourceLevel
     
-    type ImgSubresourceSlice(img : Image, aspect : ImageAspect, l0 : int, levels : int, s0 : int) =
+    type internal ImgSubresourceSlice(img : Image, aspect : ImageAspect, l0 : int, levels : int, s0 : int) =
         inherit ImgSubresourceRange(img, aspect, l0, levels, s0, 1)
         interface ImageSubresourceSlice with
             member x.Slice = s0
@@ -496,7 +522,7 @@ module internal ImageSubresourceImplementations =
                 if minLevel < 0 || lc < 0 || minLevel + lc > levels then raise <| IndexOutOfRangeException("Level")
                 ImgSubresourceSlice(img, aspect, l0 + minLevel, lc, s0) :> ImageSubresourceSlice
     
-    type ImgSubresource(img : Image, aspect : ImageAspect, level : int, slice : int) =
+    type internal ImgSubresource(img : Image, aspect : ImageAspect, level : int, slice : int) =
         inherit ImgSubresourceLevel(img, aspect, level, slice, 1)
         interface ImageSubresourceSlice with
             member x.Slice = slice
@@ -513,5 +539,46 @@ module internal ImageSubresourceImplementations =
                 x :> ImageSubresourceSlice
     
 
+    
+        member x.Sub(offset : V3i, s : V3i) =
+            let size = x.Size
+            if offset.AnySmaller 0 || s.AnySmaller 0 || (offset + s).AnyGreater size then raise <| IndexOutOfRangeException()
 
+            { new ImageSubresourceRegion with
+                member __.Resource = x :> ImageSubresourceLevel
+                member __.Offset = offset
+                member __.Size = s
+            }
         interface ImageSubresource
+
+    type ImageSubresourceLevel with
+
+    
+        member x.Sub(offset : V3i, s : V3i) =
+            let size = x.Size
+            if offset.AnySmaller 0 || s.AnySmaller 0 || (offset + s).AnyGreater size then raise <| IndexOutOfRangeException()
+
+            { new ImageSubresourceRegion with
+                member __.Resource = x
+                member __.Offset = offset
+                member __.Size = s
+            }
+            
+        member x.GetSlice(min : option<V3i>, max : option<V3i>) =
+            let size = x.Size
+            let min = defaultArg min V3i.Zero
+            let max = defaultArg max (size - V3i.III)
+            let s = V3i.III + (max - min)
+            x.Sub(min, s)
+
+        member x.GetSlice(min : option<V2i>, max : option<V2i>) =
+            x.GetSlice(
+                min |> Option.map (fun v -> V3i(v, 0)), 
+                max |> Option.map (fun v -> V3i(v, 0))
+            )
+
+        member x.GetSlice(min : option<int>, max : option<int>) =
+            x.GetSlice(
+                min |> Option.map (fun v -> V3i(v, 0, 0)), 
+                max |> Option.map (fun v -> V3i(v, 0, 0))
+            )

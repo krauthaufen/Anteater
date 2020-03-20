@@ -22,7 +22,9 @@ type OpenGLFeatures =
         version         : Version
         directState     : bool
         copyBuffer      : bool
+        copyImage       : bool
         bufferStorage   : bool
+        textureStorage  : bool
     }
 
     member private x.AsString = x.ToString()
@@ -31,7 +33,9 @@ type OpenGLFeatures =
             [
                 if x.directState then yield "DirectStateAccess"
                 if x.copyBuffer then yield "CopyBuffer"
+                if x.copyImage then yield "CopyImage"
                 if x.bufferStorage then yield "BufferStorage"
+                if x.textureStorage then yield "TextureStorage"
             ]
 
         match exts with
@@ -44,7 +48,9 @@ type OpenGLFeatures =
             version         = Version(4,1)
             directState     = false
             copyBuffer      = false
+            copyImage       = false
             bufferStorage   = false
+            textureStorage  = false
         }
 
     static member Default =
@@ -52,7 +58,9 @@ type OpenGLFeatures =
             version         = Version(4,1)
             directState     = true
             copyBuffer      = true
+            copyImage       = true
             bufferStorage   = true
+            textureStorage  = true
         }
 
 type DeviceConfig =
@@ -118,7 +126,9 @@ module internal DeviceInfo =
                     version = version
                     directState = cfg.features.directState && fst (gl.TryGetExtension<ArbDirectStateAccess>())
                     copyBuffer = cfg.features.copyBuffer && fst (gl.TryGetExtension<ArbCopyBuffer>())
+                    copyImage = cfg.features.copyImage && fst (gl.TryGetExtension<ArbCopyImage>())
                     bufferStorage = cfg.features.bufferStorage && fst (gl.TryGetExtension<ArbBufferStorage>())
+                    textureStorage = cfg.features.textureStorage && fst (gl.TryGetExtension<ArbTextureStorage>()) && fst (gl.TryGetExtension<ArbTextureStorageMultisample>())
                 }
         }
 
@@ -236,17 +246,41 @@ type OpenGLDevice(cfg : DeviceConfig) =
         res
         
     let gl = GL.GetApi()
-
     let useContext (action : unit -> 'a) =
         contexts.[0].MakeCurrent()
         try action()
         finally contexts.[0].ReleaseCurrent()
         
+    let mutable debugOuput = false
+
+    do for c in contexts do
+        c.MakeCurrent()
+        try
+            let proc = 
+                DebugProc (fun source typ id severity length message _ -> 
+                    match unbox<DebugSeverity> (int severity) with
+                    | DebugSeverity.DebugSeverityNotification 
+                    | DebugSeverity.DebugSeverityLow ->
+                        ()
+                    | _ -> 
+                        let str = Marshal.PtrToStringAnsi(message, length)
+                        Log.warn "[GL] %s" str
+                )
+            gl.DebugMessageCallback(proc, VoidPtr.zero)
+        finally
+            c.ReleaseCurrent()
+
+
+
     let enabledExtensions =
         HashSet.ofList [
             if cfg.features.directState then yield typeof<ArbDirectStateAccess>
             if cfg.features.copyBuffer then yield typeof<ArbCopyBuffer>
+            if cfg.features.copyImage then yield typeof<ArbCopyImage>
             if cfg.features.bufferStorage then yield typeof<ArbBufferStorage>
+            if cfg.features.textureStorage then 
+                yield typeof<ArbTextureStorage>
+                yield typeof<ArbTextureStorageMultisample>
         ]
 
     let functionTable, extensions =
@@ -307,7 +341,22 @@ type OpenGLDevice(cfg : DeviceConfig) =
             
     let copyBuffer =
         match extensions.TryGetValue(typeof<ArbCopyBuffer>) with
-        | true, (:? ArbBufferStorage as e) -> Some e
+        | true, (:? ArbCopyBuffer as e) -> Some e
+        | _ -> None
+        
+    let copyImage =
+        match extensions.TryGetValue(typeof<ArbCopyImage>) with
+        | true, (:? ArbCopyImage as e) -> Some e
+        | _ -> None
+        
+    let textureStorage =
+        match extensions.TryGetValue(typeof<ArbTextureStorage>) with
+        | true, (:? ArbTextureStorage as e) -> Some e
+        | _ -> None
+
+    let textureStorageMS =
+        match extensions.TryGetValue(typeof<ArbTextureStorageMultisample>) with
+        | true, (:? ArbTextureStorageMultisample as e) -> Some e
         | _ -> None
         
         
@@ -341,9 +390,11 @@ type OpenGLDevice(cfg : DeviceConfig) =
     member x.DirectState = directState
     member x.BufferStorage = bufferStorage
     member x.CopyBuffer = copyBuffer
+    member x.CopyImage = copyImage
 
     member x.Info = info
     member x.Features = info.features
+
 
     override x.Name = info.renderer
 
@@ -399,6 +450,21 @@ type OpenGLDevice(cfg : DeviceConfig) =
         | Choice1Of2 v -> v
         | Choice2Of2 e -> raise e
  
+    member x.DebugOutput 
+        with get() = debugOuput
+        and set v =
+            if v <> debugOuput then
+                // TODO: run on all contexts
+                x.Run(fun gl ->
+                    if v then
+                        gl.Enable(EnableCap.DebugOutput)
+                        gl.Enable(EnableCap.DebugOutputSynchronous)
+                    else
+                        gl.Disable(EnableCap.DebugOutput)
+                        gl.Disable(EnableCap.DebugOutputSynchronous)
+                )
+                debugOuput <- v
+
     member internal x.GetProcAddress(name : string) : nativeint =
         match functionTable.TryGetValue name with
         | (true, ptr) -> ptr
@@ -448,41 +514,113 @@ type OpenGLDevice(cfg : DeviceConfig) =
         let samples = defaultArg samples 1
         let slices = defaultArg slices 1
         let fmt = unbox<InternalFormat> (int format)
+
+        match dim with
+        | ImageDimension.ImageCube _ when samples > 1 -> failwith "[GL] multisampled cubemaps are not supported (please use arrays)"
+        | _ -> ()
+
+        let info = dim.GetTarget(samples, isArray)
+
         x.Run (fun gl ->
-            let handle = gl.GenTexture()
             match directState with
             | Some ext ->
-                match dim with
-                | ImageDimension.Image1d s -> 
-                    if samples > 1 then failwith "[GL] cannot create multisampled 1D textures"
-                    if slices > 1 then ext.TextureStorage2D(handle, uint32 levels, fmt, uint32 s, uint32 slices)
-                    else ext.TextureStorage1D(handle, uint32 levels, fmt, uint32 s)
+                let storeSize = dim.GetStorageSize slices
+                let arr = [| 0u |]
+                ext.CreateTextures(info.target, 1u, Span arr)
+                let handle = arr.[0]
 
-                | ImageDimension.Image2d s ->
-                    if samples > 1 then
-                        if levels > 1 then failwith "[GL] multisampled textures may not have MipMapLevels"
-                        if slices > 1 then ext.TextureStorage3DMultisample(handle, uint32 samples, fmt, uint32 s.X, uint32 s.Y, uint32 slices, false)
-                        else ext.TextureStorage2DMultisample(handle, uint32 samples, fmt, uint32 s.X, uint32 s.Y, false)
-                    else
-                        if slices > 1 then ext.TextureStorage3D(handle, uint32 levels, fmt, uint32 s.X, uint32 s.Y, uint32 slices)
-                        else ext.TextureStorage2D(handle, uint32 levels, fmt, uint32 s.X, uint32 s.Y)
-
-                | ImageDimension.Image3d s ->
-                    if slices > 1 then failwith "[GL] cannot create 3d texture arrays"
-                    if samples > 1 then ext.TextureStorage3DMultisample(handle, uint32 samples, fmt, uint32 s.X, uint32 s.Y, uint32 s.Z, false)
-                    else ext.TextureStorage3D(handle, uint32 levels, fmt, uint32 s.X, uint32 s.Y, uint32 s.Z)
-
-                | ImageDimension.ImageCube s ->
-                    if samples > 1 then
-                        if levels > 1 then failwith "[GL] multisampled textures may not have MipMapLevels"
-                        ext.TextureStorage3DMultisample(handle, uint32 samples, fmt, uint32 s, uint32 s, uint32 (6 * slices), false)
-                    else 
-                        ext.TextureStorage3D(handle, uint32 levels, fmt, uint32 s, uint32 s, 6u)
+                match info.storeDimension, info.multisampled with
+                | 1, false -> 
+                    ext.TextureStorage1D(handle, uint32 levels, fmt, uint32 storeSize.X)
+                | 2, false ->
+                    ext.TextureStorage2D(handle, uint32 levels, fmt, uint32 storeSize.X, uint32 storeSize.Y)
+                | 2, true ->
+                    ext.TextureStorage2DMultisample(handle, uint32 samples, fmt, uint32 storeSize.X, uint32 storeSize.Y, false)
+                | 3, false ->
+                    ext.TextureStorage3D(handle, uint32 levels, fmt, uint32 storeSize.X, uint32 storeSize.Y, uint32 storeSize.Z)
+                | 3, true ->
+                    ext.TextureStorage3DMultisample(handle, uint32 samples, fmt, uint32 storeSize.X, uint32 storeSize.Y, uint32 storeSize.Z, false)
+                | dim, ms ->
+                    failwithf "[GL] cannot allocate image with dimension %d and ms %A" dim ms
 
 
                 new Image(handle, dim, format, levels, (if isArray then Some slices else None), samples, freeImage x)
             | None ->
-                failwith ""
+                let handle = gl.GenTexture()
+                gl.BindTexture(info.target, handle)
+                    
+                if info.multisampled then
+                    match textureStorageMS with
+                    | Some ext ->
+                        let storeSize = dim.GetStorageSize slices
+                        match info.storeDimension with
+                        | 2 -> ext.TexStorage2DMultisample(info.target, uint32 samples, fmt, uint32 storeSize.X, uint32 storeSize.Y, false)
+                        | 3 -> ext.TexStorage3DMultisample(info.target, uint32 samples, fmt, uint32 storeSize.X, uint32 storeSize.Y, uint32 storeSize.Z, false)
+                        | dim -> failwithf "[GL] cannot allocate multisampled image with dimension %d" dim
+                    | None ->
+                        let storeSize = dim.GetImageSize slices
+
+                        
+                        let mutable baseLevel = 0
+                        let mutable maxLevel = 0
+                        gl.TexParameterI(info.target, TextureParameterName.TextureBaseLevel, &baseLevel)
+                        gl.TexParameterI(info.target, TextureParameterName.TextureMaxLevel, &maxLevel)
+
+                        match info.imageDimension with
+                        | 2 -> 
+                            for target in info.targets do
+                                gl.TexImage2DMultisample(target, uint32 samples, fmt, uint32 storeSize.X, uint32 storeSize.Y, false)
+                        | 3 -> 
+                            for target in info.targets do
+                                gl.TexImage3DMultisample(target, uint32 samples, fmt, uint32 storeSize.X, uint32 storeSize.Y, uint32 storeSize.Z, false)
+                        | dim -> 
+                            failwithf "[GL] cannot allocate multisampled image with dimension %d" dim
+                    
+                else
+                    match textureStorage with
+                    | Some ext ->
+                        let storeSize = dim.GetStorageSize slices
+                        match info.storeDimension with
+                        | 1 -> ext.TexStorage1D(info.target, uint32 levels, fmt, uint32 storeSize.X)
+                        | 2 -> ext.TexStorage2D(info.target, uint32 levels, fmt, uint32 storeSize.X, uint32 storeSize.Y)
+                        | 3 -> ext.TexStorage3D(info.target, uint32 levels, fmt, uint32 storeSize.X, uint32 storeSize.Y, uint32 storeSize.Z)
+                        | dim -> failwithf "[GL] cannot allocate image with dimension %d" dim
+                    | None ->
+                        let mutable baseLevel = 0
+                        let mutable maxLevel = levels - 1
+                        gl.TexParameterI(info.target, TextureParameterName.TextureBaseLevel, &baseLevel)
+                        gl.TexParameterI(info.target, TextureParameterName.TextureMaxLevel, &maxLevel)
+
+                        let t = PixelType.Float
+                        let f = PixelFormat.Rgba
+
+                        match info.imageDimension with
+                        | 1 ->
+                            let mutable dim = dim
+                            for l in 0 .. levels - 1 do
+                                let storeSize = dim.GetImageSize slices
+                                for target in info.targets do
+                                    gl.TexImage1D(target, l, int fmt, uint32 storeSize.X, 0, f, t, VoidPtr.zero)
+                                dim <- dim / 2
+                        | 2 ->
+                            let mutable dim = dim
+                            for l in 0 .. levels - 1 do
+                                let storeSize = dim.GetImageSize slices
+                                for target in info.targets do
+                                    gl.TexImage2D(target, l, int fmt, uint32 storeSize.X, uint32 storeSize.Y, 0, f, t, VoidPtr.zero)
+                                dim <- dim / 2
+                        | 3 ->
+                            let mutable dim = dim
+                            for l in 0 .. levels - 1 do
+                                let storeSize = dim.GetImageSize slices
+                                for target in info.targets do
+                                    gl.TexImage3D(target, l, int fmt, uint32 storeSize.X, uint32 storeSize.Y, uint32 storeSize.Z, 0, f, t, VoidPtr.zero)
+                                dim <- dim / 2
+                        | dim -> 
+                            failwithf "[GL] cannot allocate image with dimension %d" dim
+
+                gl.BindTexture(info.target, 0u)
+                new Image(handle, dim, format, levels, (if isArray then Some slices else None), samples, freeImage x)
         )
 
            

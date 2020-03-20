@@ -20,6 +20,9 @@ type CommandStream() =
 
     /// Copy from the given Buffer to the given Memory<T> (the length is set to the minimum of both arguments).
     abstract member Copy<'T when 'T : unmanaged> :  src : BufferRange * dst : Memory<'T> -> unit
+    
+    /// Copy from one ImageSubresourceRegion to another.
+    abstract member Copy : src : ImageSubresourceRegion * dst : ImageSubresourceRegion -> unit
 
 
     /// Release all resources associated with CommandStream.

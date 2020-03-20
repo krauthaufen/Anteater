@@ -100,5 +100,116 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
             x.Copy(src, VoidPtr.toNativeInt handle.Pointer)
         actions.Add (ignore >> handle.Dispose)
 
+
+    override x.Copy(src : ImageSubresourceRegion, dst : ImageSubresourceRegion) : unit =
+        if src.Size <> dst.Size then
+            failwithf "[GL] mismatching size for image copy: %A vs %A" src.Size dst.Size
+            
+        let srcImage = src.Resource.Image
+        let srcHandle = src.Resource.Image.Handle |> unbox<uint32>
+        let srcLevel = src.Resource.Level
+        let srcSlice = src.Resource.BaseSlice
+        let srcOffset = src.Offset
+        
+        let dstImage = dst.Resource.Image
+        let dstHandle = dst.Resource.Image.Handle |> unbox<uint32>
+        let dstLevel = dst.Resource.Level
+        let dstSlice = dst.Resource.BaseSlice
+        let dstOffset = dst.Offset
+
+        let slices = min src.Resource.Slices dst.Resource.Slices
+
+
+        let mutable size = src.Size
+        
+        let mutable srcTarget = CopyImageSubDataTarget.Renderbuffer
+        let mutable srcOffset = srcOffset
+        match srcImage.Dimension with
+        | ImageDimension.Image1d _ ->
+            if srcImage.IsArray then
+                srcTarget <- CopyImageSubDataTarget.Texture1DArray
+                srcOffset <- V3i(srcOffset.X, srcSlice, 0)
+                size <- V3i(size.X, slices, 1)
+            else
+                srcTarget <- CopyImageSubDataTarget.Texture1D
+                srcOffset <- V3i(srcOffset.X, 0, 0)
+                size <- V3i(size.X, 1, 1)
+                
+        | ImageDimension.Image2d _ ->
+            if srcImage.IsArray then
+                if srcImage.Samples > 1 then srcTarget <- CopyImageSubDataTarget.Texture2DMultisampleArray
+                else srcTarget <- CopyImageSubDataTarget.Texture2DArray
+                srcOffset <- V3i(srcOffset.X, srcOffset.Y, srcSlice)
+                size <- V3i(size.X, size.Y, slices)
+            else
+                if srcImage.Samples > 1 then srcTarget <- CopyImageSubDataTarget.Texture2DMultisample
+                else srcTarget <- CopyImageSubDataTarget.Texture2D
+                srcOffset <- V3i(srcOffset.X, srcOffset.Y, 0)
+                size <- V3i(size.X, size.Y, 1)
+                
+        | ImageDimension.Image3d _ ->
+            srcTarget <- CopyImageSubDataTarget.Texture3D
+
+        | ImageDimension.ImageCube _ ->
+            if srcImage.IsArray then
+                srcTarget <- CopyImageSubDataTarget.TextureCubeMapArray
+                srcOffset <- V3i(srcOffset.X, srcOffset.Y, srcSlice * 6)
+                size <- V3i(size.X, size.Y, slices * 6)
+            else    
+                srcTarget <- CopyImageSubDataTarget.TextureCubeMap
+                srcOffset <- V3i(srcOffset.X, srcOffset.Y, 0)
+                size <- V3i(size.X, size.Y, 6)
+            
+        let srcOffset = srcOffset
+        let srcTarget = srcTarget
+        let srcSlice = ()
+
+        let mutable dstTarget = CopyImageSubDataTarget.Renderbuffer
+        let mutable dstOffset = dstOffset
+        match dstImage.Dimension with
+        | ImageDimension.Image1d _ ->
+            if srcImage.IsArray then
+                dstTarget <- CopyImageSubDataTarget.Texture1DArray
+                dstOffset <- V3i(dstOffset.X, dstSlice, 0)
+            else
+                dstTarget <- CopyImageSubDataTarget.Texture1D
+                dstOffset <- V3i(dstOffset.X, 0, 0)
+                
+        | ImageDimension.Image2d _ ->
+            if srcImage.IsArray then
+                if srcImage.Samples > 1 then dstTarget <- CopyImageSubDataTarget.Texture2DMultisampleArray
+                else dstTarget <- CopyImageSubDataTarget.Texture2DArray
+                dstOffset <- V3i(dstOffset.X, dstOffset.Y, dstSlice)
+            else
+                if srcImage.Samples > 1 then dstTarget <- CopyImageSubDataTarget.Texture2DMultisample
+                else dstTarget <- CopyImageSubDataTarget.Texture2D
+                dstOffset <- V3i(dstOffset.X, dstOffset.Y, 0)
+                
+        | ImageDimension.Image3d _ ->
+            dstTarget <- CopyImageSubDataTarget.Texture3D
+
+        | ImageDimension.ImageCube _ ->
+            if srcImage.IsArray then
+                dstTarget <- CopyImageSubDataTarget.TextureCubeMapArray
+                dstOffset <- V3i(dstOffset.X, dstOffset.Y, dstSlice * 6)
+            else    
+                dstTarget <- CopyImageSubDataTarget.TextureCubeMap
+                dstOffset <- V3i(dstOffset.X, dstOffset.Y, 0)
+            
+        let dstOffset = dstOffset
+        let dstTarget = dstTarget
+
+
+        actions.Add <| fun gl ->
+            match device.CopyImage with
+            | Some ext ->
+                ext.CopyImageSubData(
+                    srcHandle, srcTarget, srcLevel, srcOffset.X, srcOffset.Y, srcOffset.Z,
+                    dstHandle, dstTarget, dstLevel, dstOffset.X, dstOffset.Y, dstOffset.Z,
+                    uint32 size.X, uint32 size.Y, uint32 size.Z
+                )
+            | _ -> 
+                failwith "GL] not implemented"
+
     override x.Run(ctx : ContextHandle, gl : GL) =
         for a in actions do a gl
