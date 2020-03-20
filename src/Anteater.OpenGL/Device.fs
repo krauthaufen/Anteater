@@ -68,6 +68,7 @@ type DeviceConfig =
         nVidia      : bool
         queues      : int
         features    : OpenGLFeatures
+        debug       : bool
     }
 
 type DeviceInfo =
@@ -175,6 +176,94 @@ module internal Reflection =
         else
             None
 
+
+type internal CommandQueue<'a>(threads : int) =
+    let lockObj = obj()
+
+    let allThreads = Seq.init threads id |> Set.ofSeq
+    let cancel = new CancellationTokenSource()
+    let ct = cancel.Token
+    let all = System.Collections.Generic.Queue<ref<Set<int>> * 'a>()
+    let any = System.Collections.Generic.Queue<'a>()
+    let mutable finished = false
+    let reg = ct.Register (fun () -> lock lockObj (fun () -> Monitor.PulseAll lockObj))
+
+    member x.Take(id : int) =
+        lock lockObj (fun () ->
+            let inline checkAll() = all.Count > 0 && Set.contains id (!fst(all.Peek()))
+            let inline checkAny() = any.Count > 0
+
+            let mutable hasAll = checkAll()
+            let mutable hasAny = checkAny()
+
+            while not hasAll && not hasAny && not ct.IsCancellationRequested && not finished  do
+                Monitor.Wait lockObj |> ignore
+                hasAll <- checkAll()
+                hasAny <- checkAny()
+
+            if ct.IsCancellationRequested then
+                None
+            elif hasAll then
+                let set, action = all.Peek()
+                set := Set.remove id !set
+                if Set.isEmpty !set then
+                    all.Dequeue() |> ignore
+                Some action
+            elif hasAny then
+                let value = any.Dequeue()
+                Some value
+            else
+                None
+        )
+        
+    member x.AddAny(value : 'a) =
+        lock lockObj (fun () ->
+            if finished then raise <| ObjectDisposedException("CommandQueue")
+            any.Enqueue value
+            Monitor.PulseAll lockObj
+        )
+
+    member x.AddAll(value : 'a) =
+        lock lockObj (fun () ->
+            if finished then raise <| ObjectDisposedException("CommandQueue")
+            all.Enqueue(ref allThreads, value)
+            Monitor.PulseAll lockObj
+        )
+    member x.AddSpecific(threads : seq<int>, value : 'a) =
+        lock lockObj (fun () ->
+            if finished then raise <| ObjectDisposedException("CommandQueue")
+            all.Enqueue(ref (Set.ofSeq threads), value)
+            Monitor.PulseAll lockObj
+        )
+
+    member x.Cancel() =
+        lock lockObj (fun () ->
+            finished <- true
+            cancel.Cancel()
+        )
+
+    member x.Completed() =
+        lock lockObj (fun () ->
+            finished <- true
+            Monitor.PulseAll lockObj
+        )
+
+    member x.Dispose() =
+        reg.Dispose()
+        all.Clear()
+        any.Clear()
+        cancel.Dispose()
+        
+    interface IDisposable with
+        member x.Dispose() = x.Dispose()
+
+[<RequireQualifiedAccess>]
+type OpenGLDebugMessage =
+    | Info of message : string
+    | Performance of message : string
+    | Warning of message : string
+    | Error of message : string
+
 type OpenGLDevice(cfg : DeviceConfig) =
     inherit Device()
 
@@ -187,15 +276,14 @@ type OpenGLDevice(cfg : DeviceConfig) =
         if usage.HasFlag BufferUsage.CopyDst then res <- res ||| BufferStorageMask.DynamicStorageBit
         uint32 res
 
-    static let deviceThread (ct : CancellationToken) (queue : BlockingCollection<GL -> unit>) (ctx : ContextHandle) (gl : GL) () =
+    static let deviceThread (queue : CommandQueue<GL -> unit>) (ctx : ContextHandle) (gl : GL) (id : int) () =
         ctx.MakeCurrent()
         try
-            try
-                for e in queue.GetConsumingEnumerable(ct) do
-                    try e gl
-                    with _ -> ()
-            with :? OperationCanceledException ->
-                ()
+            let mutable current = queue.Take(id)
+            while Option.isSome current do
+                try current.Value gl
+                with _ -> ()
+                current <- queue.Take(id)
         finally 
             ctx.ReleaseCurrent()
 
@@ -240,7 +328,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
         let res = Array.zeroCreate (max cfg.queues 1)
         let mutable last = None
         for i in 0 .. res.Length - 1 do
-            let c = ContextHandle.Create(cfg.features.version, ?sharedWith = last)
+            let c = ContextHandle.Create(cfg.features.version, debug = cfg.debug, ?sharedWith = last)
             res.[i] <- c
             last <- Some c
         res
@@ -250,26 +338,6 @@ type OpenGLDevice(cfg : DeviceConfig) =
         contexts.[0].MakeCurrent()
         try action()
         finally contexts.[0].ReleaseCurrent()
-        
-    let mutable debugOuput = false
-
-    do for c in contexts do
-        c.MakeCurrent()
-        try
-            let proc = 
-                DebugProc (fun source typ id severity length message _ -> 
-                    match unbox<DebugSeverity> (int severity) with
-                    | DebugSeverity.DebugSeverityNotification 
-                    | DebugSeverity.DebugSeverityLow ->
-                        ()
-                    | _ -> 
-                        let str = Marshal.PtrToStringAnsi(message, length)
-                        Log.warn "[GL] %s" str
-                )
-            gl.DebugMessageCallback(proc, VoidPtr.zero)
-        finally
-            c.ReleaseCurrent()
-
 
 
     let enabledExtensions =
@@ -362,13 +430,12 @@ type OpenGLDevice(cfg : DeviceConfig) =
         
 
 
-    let cancel = new CancellationTokenSource()
-    let queue = new BlockingCollection<GL -> unit>()
+    let queue = new CommandQueue<GL -> unit>(contexts.Length)
     let threads =
         contexts |> Array.mapi (fun id ctx ->
             let thread = 
                 Thread(
-                    ThreadStart(deviceThread cancel.Token queue ctx gl),
+                    ThreadStart(deviceThread queue ctx gl id),
                     IsBackground = true,
                     Name = sprintf "OpenGL[%d]" id,
                     Priority = ThreadPriority.Highest
@@ -377,7 +444,144 @@ type OpenGLDevice(cfg : DeviceConfig) =
             thread
         )
 
-    
+    let runAll (action : ContextHandle -> GL -> unit) =
+        let missing = ref contexts.Length
+        let exceptions = System.Collections.Generic.List<exn>()
+        let action gl =
+            try
+                let current = ContextHandle.Current.Value
+                action current gl
+                gl.Flush()
+                gl.Finish()
+                lock missing (fun () -> 
+                    missing := !missing - 1
+                    if !missing = 0 then
+                        Monitor.PulseAll missing
+                )
+            with e ->
+                lock missing (fun () ->
+                    exceptions.Add e
+                    missing := !missing - 1
+                    if !missing = 0 then
+                        Monitor.PulseAll missing
+                )
+        queue.AddAll action
+        lock missing (fun () ->
+            while !missing > 0 do
+                Monitor.Wait missing |> ignore
+        )
+
+        if exceptions.Count > 0 then
+            raise <| AggregateException(exceptions)
+        else
+            ()
+
+    let debugMessages =
+        if cfg.debug then
+            let all = System.Collections.Generic.HashSet<IObserver<OpenGLDebugMessage>>()
+
+            runAll (fun _ gl ->
+                let proc = 
+                    DebugProc (fun source typ id severity length message _ -> 
+                        let str = Marshal.PtrToStringAnsi(message, length)
+                        let message =
+                            match unbox<DebugType> (int typ) with
+                            | DebugType.DebugTypeError -> 
+                                match unbox<DebugSeverity> (int severity) with
+                                | DebugSeverity.DebugSeverityHigh -> OpenGLDebugMessage.Error str
+                                | _ -> OpenGLDebugMessage.Warning str
+                            | DebugType.DebugTypePerformance -> 
+                                OpenGLDebugMessage.Performance str
+                            | _ ->  
+                                OpenGLDebugMessage.Info str
+
+                        lock all (fun () ->
+                            for a in all do a.OnNext message
+                        )
+                    )
+                lock gl (fun () ->
+                    gl.DebugMessageCallback(proc, VoidPtr.zero)   
+                )
+            )
+
+            { new IObservable<OpenGLDebugMessage> with
+                member x.Subscribe(obs : IObserver<OpenGLDebugMessage>) =
+                    lock all (fun () ->
+                        if all.Add obs then
+                            if all.Count = 1 then
+                                runAll (fun _ gl -> 
+                                    gl.Enable(EnableCap.DebugOutput)
+                                    gl.Enable(EnableCap.DebugOutputSynchronous)
+                                )
+
+                            { new IDisposable with
+                                member x.Dispose() =
+                                    lock all (fun () -> 
+                                        if all.Remove obs then
+                                            if all.Count = 0 then
+                                                runAll (fun _ gl -> 
+                                                    gl.Disable(EnableCap.DebugOutput)
+                                                    gl.Disable(EnableCap.DebugOutputSynchronous)
+                                                )
+                                            
+                                    )
+                            }
+                        else
+                            { new IDisposable with
+                                member x.Dispose() = ()
+                            }
+                    )
+            }
+        else
+            { new IObservable<OpenGLDebugMessage> with
+                member x.Subscribe _ = { new IDisposable with member x.Dispose() = () }
+            }
+
+    let mutable debugSeverity = if cfg.debug then 4 else 0
+    let mutable debugOuputSubscription : option<IDisposable> = None
+
+    let setDebugReport (v : bool) =
+        if cfg.debug then
+            match debugOuputSubscription with
+            | Some s when not v -> 
+                s.Dispose()
+                debugOuputSubscription <- None
+            | None when v -> 
+                let sub =
+                    debugMessages.Subscribe (fun v ->
+                        match v with
+                        | OpenGLDebugMessage.Info msg -> Report.Line("[GL] {0}", msg)
+                        | OpenGLDebugMessage.Warning msg -> Report.WarnNoPrefix("[GL] {0}", msg)
+                        | OpenGLDebugMessage.Error msg -> Report.ErrorNoPrefix("[GL] {0}", msg)
+                        | OpenGLDebugMessage.Performance msg -> Report.Line("[GL] {0}", msg)
+                    )
+                debugOuputSubscription <- Some sub
+            | _ ->
+                ()
+
+    let setDebugSeverity (value : int) =
+        if cfg.debug then
+            runAll (fun _ gl ->
+                if value < 4 then
+                    gl.DebugMessageControl(DebugSource.DontCare, DebugType.DontCare, DebugSeverity.DontCare, 0u, NativePtr.zero, false)
+                    gl.DebugMessageControl(DebugSource.DontCare, DebugType.DebugTypeError, DebugSeverity.DebugSeverityHigh, 0u, NativePtr.zero, true)
+
+                    if value >= 1 then
+                        gl.DebugMessageControl(DebugSource.DontCare, DebugType.DebugTypeError, DebugSeverity.DontCare, 0u, NativePtr.zero, true)
+                    if value >= 2 then
+                        gl.DebugMessageControl(DebugSource.DontCare, DebugType.DebugTypeUndefinedBehavior, DebugSeverity.DontCare, 0u, NativePtr.zero, true)
+                        gl.DebugMessageControl(DebugSource.DontCare, DebugType.DebugTypeDeprecatedBehavior, DebugSeverity.DontCare, 0u, NativePtr.zero, true)
+                    if value >= 3 then
+                        gl.DebugMessageControl(DebugSource.DontCare, DebugType.DebugTypePerformance, DebugSeverity.DontCare, 0u, NativePtr.zero, true)
+                else
+                    gl.DebugMessageControl(DebugSource.DontCare, DebugType.DontCare, DebugSeverity.DontCare, 0u, NativePtr.zero, true)
+                
+            )
+            debugSeverity <- value
+
+    do setDebugSeverity debugSeverity
+       setDebugReport cfg.debug
+
     static let freeBuffer (this : OpenGLDevice) (handle : obj) =
         this.Start(fun gl ->
             gl.DeleteBuffer (unbox<uint32> handle)
@@ -399,13 +603,13 @@ type OpenGLDevice(cfg : DeviceConfig) =
     override x.Name = info.renderer
 
     override x.Dispose() =
-        cancel.Cancel()
+        queue.Cancel()
         for t in threads do t.Join()
         queue.Dispose()
-        cancel.Dispose()
+        queue.Dispose()
 
     member x.Start(action : GL -> unit) =
-        queue.Add (fun gl ->
+        queue.AddAny (fun gl ->
             action gl
             gl.Flush()
             gl.Finish()
@@ -421,7 +625,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
                 tcs.SetResult res
             with e ->
                 tcs.SetException e
-        queue.Add action
+        queue.AddAny action
         tcs.Task
 
     member x.Run(action : GL -> 'a) =
@@ -441,7 +645,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
                     Monitor.PulseAll res
 
                 )
-        queue.Add action
+        queue.AddAny action
         lock res (fun () ->
             while Option.isNone !res do
                 Monitor.Wait res |> ignore
@@ -449,21 +653,17 @@ type OpenGLDevice(cfg : DeviceConfig) =
         match res.Value.Value with
         | Choice1Of2 v -> v
         | Choice2Of2 e -> raise e
- 
-    member x.DebugOutput 
-        with get() = debugOuput
-        and set v =
-            if v <> debugOuput then
-                // TODO: run on all contexts
-                x.Run(fun gl ->
-                    if v then
-                        gl.Enable(EnableCap.DebugOutput)
-                        gl.Enable(EnableCap.DebugOutputSynchronous)
-                    else
-                        gl.Disable(EnableCap.DebugOutput)
-                        gl.Disable(EnableCap.DebugOutputSynchronous)
-                )
-                debugOuput <- v
+
+    
+    member x.DebugMessages = debugMessages
+
+    member x.DebugSeverity 
+        with get() = debugSeverity
+        and set v = if v <> debugSeverity then setDebugSeverity v
+
+    member x.DebugReport
+        with get() = Option.isSome debugOuputSubscription
+        and set v = setDebugReport v
 
     member internal x.GetProcAddress(name : string) : nativeint =
         match functionTable.TryGetValue name with

@@ -11,7 +11,7 @@ let simple =
     testList "Device" [
     
         testPropertyWithConfig cfg "creation" (fun (f : OpenGLFeatures) ->
-            use d = new OpenGLDevice { queues = 1; nVidia = false; features = f }
+            use d = new OpenGLDevice { queues = 1; nVidia = false; features = f; debug = true }
             ()
         ) 
     ]

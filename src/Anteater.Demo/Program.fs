@@ -45,15 +45,12 @@ let main argv =
         use device = 
             new OpenGLDevice { 
                 nVidia = false
-                queues = 1
+                queues = 2
                 features = f
+                debug = true
             }
 
-        device.DebugOutput <- true
-
         Log.start "%A" device.Features
-
-        
 
         let allTargets =
             [|
@@ -95,16 +92,14 @@ let main argv =
                 TextureTarget.Texture3D, device.CreateImage(ImageDimension.Image3d(V3i(128,128,128)), ImageFormat.Rgba8UNorm, 2)
             |]
             
-        device.DebugOutput <- false
-
+        device.DebugReport <- false
         for (expected, img) in textures do
             let real = findTargets img
             if not (Array.contains expected real) then
                 Log.warn "%A broken (was %A)" expected real
                 
             img.Dispose()
-
-        device.DebugOutput <- true
+        device.DebugReport <- true
 
         use buffer = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)
         use buffer2 = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)

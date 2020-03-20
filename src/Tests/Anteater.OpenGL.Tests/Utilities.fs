@@ -28,7 +28,7 @@ let test = NativeLibrary.TryLoad path
 
 let inline deviceTest (name : string) (features : OpenGLFeatures) (action : Device -> unit) =
     testCase name (fun () ->
-        use d = new OpenGLDevice { features = features; queues = 1; nVidia = false }
+        use d = new OpenGLDevice { features = features; queues = 1; nVidia = false; debug = true }
         action d
     ) 
 

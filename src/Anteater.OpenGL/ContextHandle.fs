@@ -5,6 +5,8 @@ open Silk.NET.GLFW
 open Aardvark.Base
 open Microsoft.FSharp.NativeInterop
 
+#nowarn "9"
+
 module Glfw =
 
     type internal GlfwLoader(glfw : Glfw) =
@@ -23,10 +25,11 @@ module Glfw =
 
     //let mutable private lastWindow : nativeptr<WindowHandle> = NativePtr.zero
 
-    let internal createContext (sharedWith : nativeptr<WindowHandle>) (v : Version) =
+    let internal createContext (debug : bool) (sharedWith : nativeptr<WindowHandle>) (v : Version) =
         lock api (fun () ->
             api.DefaultWindowHints()
             api.WindowHint(WindowHintBool.Visible, false)
+            api.WindowHint(WindowHintBool.OpenGLDebugContext, debug)
             if v.Major > 0 then
                 api.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core)
                 api.WindowHint(WindowHintInt.ContextVersionMajor, v.Major)
@@ -79,15 +82,23 @@ type ContextHandle private(glfw : Glfw, handle : nativeptr<WindowHandle>, dispos
     member x.GetProcAddress(name : string) =
         glfw.GetProcAddress(name)
 
+    member x.Pointer = NativePtr.toNativeInt handle
+
+    override x.ToString() =
+        sprintf "GL[0x%X]" (NativePtr.toNativeInt handle)
+
     interface IDisposable with
         member x.Dispose() = x.Dispose()
 
-    static member Create(v : Version, ?sharedWith : ContextHandle) =
+    static member Create(v : Version, ?debug : bool, ?sharedWith : ContextHandle) =
         let ptr =
             match sharedWith with
             | Some c -> c.Window
             | _ -> NativePtr.zero
-        new ContextHandle(Glfw.api, Glfw.createContext ptr v, true)
+
+        let debug = defaultArg debug false
+
+        new ContextHandle(Glfw.api, Glfw.createContext debug ptr v, true)
 
     static member FromWindow(windowHandle : nativeptr<WindowHandle>) =
         new ContextHandle(Glfw.api, windowHandle, false)
