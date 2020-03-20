@@ -2,6 +2,7 @@
 
 open System
 open Anteater
+open Aardvark.Base
 
 [<AbstractClass>]
 type CommandStream() =
@@ -24,6 +25,9 @@ type CommandStream() =
     /// Copy from one ImageSubresourceRegion to another.
     abstract member Copy : src : ImageSubresourceRegion * dst : ImageSubresourceRegion -> unit
 
+    
+    /// Copy from a host-pointer to the given ImageSubresourceRegion.
+    abstract member Copy<'T when 'T : unmanaged> : src : nativeptr<'T> * fmt : Col.Format * dst : ImageSubresourceRegion -> unit
 
     /// Release all resources associated with CommandStream.
     abstract member Dispose : disposing : bool -> unit

@@ -269,8 +269,6 @@ type OpenGLDevice(cfg : DeviceConfig) =
 
     do if cfg.nVidia then DynamicLinker.tryLoadLibrary ("nvapi64" + libraryExtension) |> ignore
 
-    
-        
     static let toBufferStorageMask (usage : BufferUsage) =
         let mutable res = BufferStorageMask.MapReadBit ||| BufferStorageMask.MapWriteBit
         if usage.HasFlag BufferUsage.CopyDst then res <- res ||| BufferStorageMask.DynamicStorageBit

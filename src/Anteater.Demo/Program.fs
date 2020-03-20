@@ -4,8 +4,8 @@ open FSharp.Data.Adaptive
 open Anteater
 open Anteater.OpenGL
 open Silk.NET.OpenGL
-open System.Runtime.InteropServices
 open Microsoft.FSharp.Reflection
+open System.Runtime.InteropServices
 
 let allFeatures(version : Version) =
     let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true) |> Array.rev
@@ -37,15 +37,11 @@ let allFeatures(version : Version) =
 let main argv = 
     Log.start "Buffer copy and up/download"
 
-    let features = 
-        { OpenGLFeatures.Default with textureStorage = false; directState = false }
-
-
     for f in allFeatures (Version(4,1)) do
         use device = 
             new OpenGLDevice { 
                 nVidia = true
-                queues = 2
+                queues = 4
                 features = f
                 debug = true
             }
@@ -94,14 +90,21 @@ let main argv =
                 TextureTarget.Texture3D, device.CreateImage(ImageDimension.Image3d(V3i(128,128,128)), ImageFormat.Rgba8UNorm, 2)
             |]
             
-        device.DebugReport <- false
+        let data = Marshal.AllocHGlobal (1024n * 1024n * 11n * 4n) |> Microsoft.FSharp.NativeInterop.NativePtr.ofNativeInt<byte>
+
         for (expected, img) in textures do
+            device.DebugReport <- false
             let real = findTargets img
+            device.DebugReport <- true
+            
             if not (Array.contains expected real) then
                 Log.warn "%A broken (was %A)" expected real
-                
+            elif img.Samples <= 1 then
+                use c = device.CreateCommandStream()
+                c.Copy(data, Col.Format.RGBA, img.[ImageAspect.Color, 0, 0])
+                device.Run c
+
             img.Dispose()
-        device.DebugReport <- true
 
         use buffer = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)
         use buffer2 = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)

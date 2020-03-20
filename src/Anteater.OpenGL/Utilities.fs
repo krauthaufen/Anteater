@@ -39,6 +39,9 @@ module Utilities =
 
         let ofNativeInt (ptr : nativeint) =
             NativePtr.ofNativeInt<byte> ptr |> NativePtr.toVoidPtr
+            
+        let ofNativePtr (ptr : nativeptr<'a>) =
+            ptr |> NativePtr.toVoidPtr
 
 
     type ExecutableStream() =

@@ -352,6 +352,10 @@ type internal NativeOpenGLCommandStream(device : OpenGLDevice) =
 
     override x.Copy(src : ImageSubresourceRegion, dst : ImageSubresourceRegion) : unit =
         failwith "not implemented"
+       
+    override x.Copy<'T when 'T : unmanaged>(src : nativeptr<'T>, fmt : Col.Format, dst : ImageSubresourceRegion) : unit =
+        failwith "implement me"
+        ()
         
     override x.Run(ctx : ContextHandle, gl : GL) =
         let run = 

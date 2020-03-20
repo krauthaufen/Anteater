@@ -115,12 +115,12 @@ module ImageTargetExtensions =
                         target = TextureTarget.TextureCubeMap
                         targets = 
                             [ 
-                                TextureTarget.TextureCubeMapNegativeX
                                 TextureTarget.TextureCubeMapPositiveX
-                                TextureTarget.TextureCubeMapNegativeY
+                                TextureTarget.TextureCubeMapNegativeX
                                 TextureTarget.TextureCubeMapPositiveY
-                                TextureTarget.TextureCubeMapNegativeZ
+                                TextureTarget.TextureCubeMapNegativeY
                                 TextureTarget.TextureCubeMapPositiveZ
+                                TextureTarget.TextureCubeMapNegativeZ
                             ]
                         imageDimension = 2
                         storeDimension = 2
@@ -128,7 +128,39 @@ module ImageTargetExtensions =
                         multisampled = samples > 1
                     }
 
-        
+    type Col.Format with
+        member x.PixelFormat =
+            match x with
+            | Col.Format.Gray -> PixelFormat.Red
+            | Col.Format.NormalUV -> PixelFormat.RG
+            | Col.Format.RGB -> PixelFormat.Rgb
+            | Col.Format.RGBA -> PixelFormat.Rgba
+            | Col.Format.BGR -> PixelFormat.Bgr
+            | Col.Format.BGRA -> PixelFormat.Bgra
+            | Col.Format.RGBP -> PixelFormat.Rgba
+            | _ -> failwithf "[GL] unknown col.format: %A" x
+
+        member x.Channels =
+            match x with
+            | Col.Format.Gray -> 1
+            | Col.Format.NormalUV -> 2
+            | Col.Format.RGB -> 3
+            | Col.Format.RGBA -> 4
+            | Col.Format.BGR -> 3
+            | Col.Format.BGRA -> 4
+            | Col.Format.RGBP -> 4
+            | _ -> failwithf "[GL] unknown col.format: %A" x
+
+    type Type with
+        member x.PixelType =
+            if x = typeof<uint8> then PixelType.UnsignedByte
+            elif x = typeof<int8> then PixelType.Byte
+            elif x = typeof<uint16> then PixelType.UnsignedShort
+            elif x = typeof<int16> then PixelType.Short
+            elif x = typeof<uint32> then PixelType.UnsignedInt
+            elif x = typeof<int32> then PixelType.Int
+            elif x = typeof<float32> then PixelType.Float
+            else failwithf "[GL] unknown pixeltype: %A" x
 
     type Image with
         member x.Target = x.Dimension.GetTarget(x.Samples, x.IsArray)

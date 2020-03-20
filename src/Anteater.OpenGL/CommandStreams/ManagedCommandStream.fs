@@ -2,13 +2,16 @@ namespace Anteater.OpenGL
 
 
 open System
+open Microsoft.FSharp.NativeInterop
 open System.Runtime.InteropServices
 open Aardvark.Base
 open Silk.NET.OpenGL
 open Silk.NET.OpenGL.Extensions.ARB
 open Anteater
 
-[<CommandStreamScore(1)>]
+#nowarn "9"
+
+[<CommandStreamScore(100)>]
 type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
     inherit OpenGLCommandStream()
 
@@ -210,6 +213,80 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
                 )
             | _ -> 
                 failwith "GL] not implemented"
+
+    override x.Copy<'T when 'T : unmanaged>(src : nativeptr<'T>, fmt : Col.Format, dst : ImageSubresourceRegion) : unit =
+        let dstResource = dst.Resource
+        let dstImage = dstResource.Image
+        let dh = unbox<uint32> dstImage.Handle
+        let dstLevel = dstResource.Level
+
+        let channels = fmt.Channels
+        let fmt = fmt.PixelFormat
+        let typ = typeof<'T>.PixelType
+        actions.Add <| fun gl ->
+            match device.DirectState with
+            | Some ext ->
+                match dstImage.Dimension with
+                | ImageDimension.Image1d _ when not dstImage.IsArray ->
+                    ext.TextureSubImage1D(dh, dstLevel, dst.Offset.X, uint32 dst.Size.X, fmt, typ, VoidPtr.ofNativePtr src)
+                | ImageDimension.Image1d _ ->
+                    ext.TextureSubImage2D(dh, dstLevel, dst.Offset.X, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dstResource.Slices, fmt, typ, VoidPtr.ofNativePtr src)
+                    
+                | ImageDimension.Image2d _ when not dstImage.IsArray ->
+                    ext.TextureSubImage2D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, uint32 dst.Size.X, uint32 dst.Size.Y, fmt, typ, VoidPtr.ofNativePtr src)
+                | ImageDimension.Image2d _ ->
+                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dstResource.Slices, fmt, typ, VoidPtr.ofNativePtr src)
+
+                | ImageDimension.Image3d _ ->
+                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, dst.Offset.Z, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dst.Size.Z, fmt, typ, VoidPtr.ofNativePtr src)
+                    
+                | ImageDimension.ImageCube _ when not dstImage.IsArray ->
+                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, 0, uint32 dst.Size.X, uint32 dst.Size.Y, 6u, fmt, typ, VoidPtr.ofNativePtr src)
+
+                | ImageDimension.ImageCube _ ->
+                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dstResource.Slices, fmt, typ, VoidPtr.ofNativePtr src)
+            | None ->
+                match dstImage.Dimension with
+                | ImageDimension.Image1d _ when not dstImage.IsArray ->
+                    gl.BindTexture(TextureTarget.Texture1D, dh)
+                    gl.TexSubImage1D(TextureTarget.Texture1D, dstLevel, dst.Offset.X, uint32 dst.Size.X, fmt, typ, VoidPtr.ofNativePtr src)
+                    gl.BindTexture(TextureTarget.Texture1D, 0u)
+
+                | ImageDimension.Image1d _ ->
+                    gl.BindTexture(TextureTarget.Texture1DArray, dh)
+                    gl.TexSubImage2D(TextureTarget.Texture1DArray, dstLevel, dst.Offset.X, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dstResource.Slices, fmt, typ, VoidPtr.ofNativePtr src)
+                    gl.BindTexture(TextureTarget.Texture1D, 0u)
+                    
+                | ImageDimension.Image2d _ when not dstImage.IsArray ->
+                    gl.BindTexture(TextureTarget.Texture2D, dh)
+                    gl.TexSubImage2D(TextureTarget.Texture2D, dstLevel, dst.Offset.X, dst.Offset.Y, uint32 dst.Size.X, uint32 dst.Size.Y, fmt, typ, VoidPtr.ofNativePtr src)
+                    gl.BindTexture(TextureTarget.Texture2D, 0u)
+
+                | ImageDimension.Image2d _ ->
+                    gl.BindTexture(TextureTarget.Texture2DArray, dh)
+                    gl.TexSubImage3D(TextureTarget.Texture2DArray, dstLevel, dst.Offset.X, dst.Offset.Y, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dstResource.Slices, fmt, typ, VoidPtr.ofNativePtr src)
+                    gl.BindTexture(TextureTarget.Texture2DArray, 0u)
+
+                | ImageDimension.Image3d _ ->
+                    gl.BindTexture(TextureTarget.Texture3D, dh)
+                    gl.TexSubImage3D(TextureTarget.Texture3D, dstLevel, dst.Offset.X, dst.Offset.Y, dst.Offset.Z, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dst.Size.Z, fmt, typ, VoidPtr.ofNativePtr src)
+                    gl.BindTexture(TextureTarget.Texture3D, 0u)
+
+                | ImageDimension.ImageCube _ when not dstImage.IsArray ->
+                    gl.BindTexture(TextureTarget.TextureCubeMap, dh)
+                    let mutable ptr = NativePtr.toNativeInt src
+                    let sliceSize = nativeint dst.Size.X * nativeint dst.Size.Y * nativeint channels
+                    for face in int TextureTarget.TextureCubeMapPositiveX .. int TextureTarget.TextureCubeMapNegativeZ do
+                        gl.TexSubImage2D(unbox<TextureTarget> face, dstLevel, dst.Offset.X, dst.Offset.Y, uint32 dst.Size.X, uint32 dst.Size.Y, fmt, typ, VoidPtr.ofNativeInt ptr)
+                        ptr <- ptr + sliceSize
+                    gl.BindTexture(TextureTarget.TextureCubeMap, 0u)
+
+                | ImageDimension.ImageCube _ ->
+                    gl.BindTexture(TextureTarget.TextureCubeMapArray, dh)
+                    gl.TexSubImage3D(TextureTarget.TextureCubeMapArray, dstLevel, dst.Offset.X, dst.Offset.Y, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dstResource.Slices, fmt, typ, VoidPtr.ofNativePtr src)
+                    gl.BindTexture(TextureTarget.TextureCubeMapArray, 0u)
+                
+        ()
 
     override x.Run(ctx : ContextHandle, gl : GL) =
         for a in actions do a gl
