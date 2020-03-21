@@ -3,8 +3,11 @@
 open System
 open Aardvark.Base
 open Anteater
+open System.Runtime.InteropServices
 open System.Runtime.CompilerServices
+open Microsoft.FSharp.NativeInterop
 
+#nowarn "9"
 
 [<RequireQualifiedAccess>]
 type ImageDimension =
@@ -431,11 +434,11 @@ module ImageFormat =
 
             // depth formats
             ImageFormat.Depth16,            HashSet.ofList [ typeof<float16> ]
-            ImageFormat.Depth24,            HashSet.ofList [ typeof<float32>; typeof<uint32> ]
+            ImageFormat.Depth24,            HashSet.ofList [ typeof<float32>; typeof<uint32>; typeof<uint24> ]
             ImageFormat.Depth32,            HashSet.ofList [ typeof<float32>; typeof<uint32> ]
             ImageFormat.Depth32f,           HashSet.ofList [ typeof<float32> ]
             ImageFormat.Depth32fStencil8,   HashSet.ofList [ typeof<float32> ]
-            ImageFormat.Depth24Stencil8,    HashSet.ofList [ typeof<float32>; typeof<uint32> ]
+            ImageFormat.Depth24Stencil8,    HashSet.ofList [ typeof<float32>; typeof<uint32>; typeof<Depth24Stencil8> ]
         ]
 
 

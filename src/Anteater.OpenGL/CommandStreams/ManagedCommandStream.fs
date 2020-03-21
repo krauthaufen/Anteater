@@ -15,6 +15,31 @@ open Anteater
 [<AbstractClass; Sealed; Extension>]
 type internal TexturePBOExtensions private() =
     [<Extension>]
+    static member GetSubTensor<'T when 'T : unmanaged>(tensor : NativeTensor4<'T>, channels : int, dst : ImageSubresourceRegion) =
+        
+        let dstResource = dst.Resource
+        let dstImage = dstResource.Image
+        let slices = dstResource.Slices
+
+        let copySize = dst.Size
+        let sizeInBytes = nativeint copySize.X * nativeint copySize.Y * nativeint copySize.Z * nativeint channels * nativeint sizeof<'T>
+
+        let info =
+            match dstImage.Dimension with
+            | ImageDimension.Image1d _ ->
+                tensor.SubTensor4(V4i(dst.Offset.X, 0, dstResource.BaseSlice, 0), V4i(dst.Size.X, channels, dstResource.Slices, 1))
+            | ImageDimension.Image2d _ ->
+                tensor.SubTensor4(V4i(dst.Offset.X, dst.Offset.Y, 0, dstResource.BaseSlice), V4i(dst.Size.X, dst.Size.Y, channels, dstResource.Slices))
+                //Tensor4Info(0L, V4l(copySize.X, copySize.Y, channels, slices), V4l(int64 channels, int64 channels * int64 copySize.X, 1L, int64 channels * int64 copySize.X * int64 copySize.Y))
+            | ImageDimension.ImageCube _ ->
+                tensor.SubTensor4(V4i(dst.Offset.X, dst.Offset.Y, 0, 6*dstResource.BaseSlice), V4i(dst.Size.X, dst.Size.Y, channels, 6*dstResource.Slices))
+                //Tensor4Info(0L, V4l(copySize.X, copySize.Y, channels, 6 * slices), V4l(int64 channels, int64 channels * int64 copySize.X, 1L, int64 channels * int64 copySize.X * int64 copySize.Y))
+            | ImageDimension.Image3d _ ->
+                tensor.SubTensor4(V4i(dst.Offset.X, dst.Offset.Y, dst.Offset.Z, 0), V4i(dst.Size.X, dst.Size.Y, dst.Size.Z, channels))
+                //Tensor4Info(0L, V4l(copySize.X, copySize.Y, copySize.Z, channels), V4l(int64 channels, int64 channels * int64 copySize.X, int64 channels * int64 copySize.X * int64 copySize.Y, 1L))
+        info
+        
+    [<Extension>]
     static member CreatePixelBuffer<'T when 'T : unmanaged>(device : OpenGLDevice, channels : int, dst : ImageSubresourceRegion, write : bool) =
 
         let dstResource = dst.Resource
@@ -57,7 +82,7 @@ type internal TexturePBOExtensions private() =
             let unmap() =
                 ext.UnmapNamedBuffer(temp)
 
-            temp, map, unmap
+            sizeInBytes, temp, map, unmap
         | None ->
             let gl = device.GL
             let temp = gl.GenBuffer()
@@ -76,9 +101,25 @@ type internal TexturePBOExtensions private() =
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
                     res
                     
-                temp, map, unmap
+                sizeInBytes, temp, map, unmap
             | None ->
-                failwith ""
+                let hint = 
+                    if write then BufferUsageARB.StaticDraw
+                    else BufferUsageARB.StaticRead
+                gl.BufferData(BufferTargetARB.ArrayBuffer, unativeint sizeInBytes, VoidPtr.zero, hint)
+                gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
+
+                let map() =
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, temp)
+                    let tempPtr = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, 0n, unativeint sizeInBytes, uint32 mapMask) |> VoidPtr.toNativePtr<'T>
+                    NativeTensor4<'T>(tempPtr, info)
+
+                let unmap() =
+                    let res = gl.UnmapBuffer(BufferTargetARB.ArrayBuffer)
+                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
+                    res
+                    
+                sizeInBytes, temp, map, unmap
 
 
 
@@ -341,7 +382,7 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
         let typ = typeof<'T>.PixelType
 
         actions.Add <| fun gl ->
-            let temp, map, unmap = device.CreatePixelBuffer(channels, dst, true)
+            let tempSize, temp, map, unmap = device.CreatePixelBuffer(channels, dst, true)
             let src, release = acquire()
             let dstTensor = map()
             NativeTensor4.copy src dstTensor
@@ -442,7 +483,7 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
 
         if src.Offset = V3i.Zero && src.Size = srcImage.Size && srcResource.Slices = srcImage.Slices then
             actions.Add <| fun gl ->
-                let temp, map, unmap = device.CreatePixelBuffer(channels, src, false)
+                let tempSize, temp, map, unmap = device.CreatePixelBuffer(channels, src, false)
                 gl.BindBuffer(BufferTargetARB.PixelPackBuffer, temp)
                 match device.DirectState with
                 | Some ext ->
@@ -471,7 +512,7 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
                     let fbo = gl.GenFramebuffer()
                     gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, fbo)
 
-                    let buffer, map, unmap = device.CreatePixelBuffer<'T>(channels, src, false)
+                    let tempSize, buffer, map, unmap = device.CreatePixelBuffer<'T>(channels, src, false)
 
                     gl.BindBuffer(BufferTargetARB.PixelPackBuffer, buffer)
                     let mutable offset = 0n
@@ -511,7 +552,30 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
                     gl.DeleteBuffer buffer
 
             | _ -> 
-                failwith "sub-region download not implemented atm."
+                // copy entire image to buffer
+                actions.Add <| fun gl ->
+                    let tempSize, temp, map, unmap = device.CreatePixelBuffer(channels, src.Resource.Image.[src.Resource.Level], false)
+                    gl.BindBuffer(BufferTargetARB.PixelPackBuffer, temp)
+                    match device.DirectState with
+                    | Some ext ->
+                        ext.GetTextureImage(sh, srcLevel, fmt, typ, uint32 tempSize, VoidPtr.zero)
+                    | None ->
+                        let mutable offset = 0n
+                        let info = srcImage.Target
+                        gl.BindTexture(info.target, sh)
+                        for target in info.targets do
+                            gl.GetTexImage(target, srcLevel, fmt, typ, VoidPtr.ofNativeInt offset)
+                            offset <- offset + nativeint sliceSize
+                        gl.BindTexture(info.target, 0u)
+                    gl.BindBuffer(BufferTargetARB.PixelPackBuffer, 0u)
+
+                    // copy only the desired region to the output
+                    let dst, release = acquire()
+                    let tempTensor = map().GetSubTensor(channels, src)
+                    NativeTensor4.copy tempTensor dst
+                    unmap() |> ignore
+                    release()
+                    gl.DeleteBuffer temp
 
     
     override x.Copy<'T when 'T : unmanaged>(src : NativeTensor4<'T>, dst : ImageSubresourceRegion) =  

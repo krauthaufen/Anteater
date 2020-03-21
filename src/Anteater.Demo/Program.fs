@@ -38,15 +38,19 @@ let allFeatures(version : Version) =
 
 [<EntryPoint;STAThread>]
 let main argv = 
+
     Log.start "Buffer copy and up/download"
 
-    let features =
-        {
-            OpenGLFeatures.Default with
-                directState = false
-        }
+    let relevant =
+        [
+            OpenGLFeatures.Default
+            { OpenGLFeatures.Default with directState = false }
+            { OpenGLFeatures.Default with directState = false; bufferStorage = false }
+            { OpenGLFeatures.Default with directState = false; bufferStorage = false; textureStorage = false }
+            { OpenGLFeatures.Default with directState = false; textureStorage = false }
+        ]
 
-    for f in [features] do
+    for f in relevant do
         use device = 
             new OpenGLDevice { 
                 nVidia = true
@@ -56,66 +60,17 @@ let main argv =
             }
 
         device.DebugSeverity <- 2
-
         Log.start "%A" device.Features
 
-        let allTargets =
-            [|
-                TextureTarget.Texture1D
-                TextureTarget.Texture1DArray
-                
-                TextureTarget.Texture2D
-                TextureTarget.Texture2DArray
-                TextureTarget.Texture2DMultisample
-                TextureTarget.Texture2DMultisampleArray
-
-                TextureTarget.TextureCubeMap
-                TextureTarget.TextureCubeMapArray
-
-                TextureTarget.Texture3D
-            |]
-
-        let findTargets (img : Image) =
-            device.Run (fun gl ->
-                let _err = gl.GetError()
-                allTargets |> Array.filter (fun t ->
-                    gl.BindTexture(t, unbox<uint32> img.Handle)
-                    let err = gl.GetError()
-                    gl.BindTexture(t, 0u)
-                    err = GLEnum.None
-                )
-            )
-
-        let textures =
-            [|
-                TextureTarget.Texture1D, device.CreateImage(ImageDimension.Image1d 128, ImageFormat.Rgba8UNorm, 2)
-                TextureTarget.Texture1DArray, device.CreateImage(ImageDimension.Image1d 1024, ImageFormat.Rgba8UNorm, 11, 5)
-                TextureTarget.Texture2D, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11)
-                TextureTarget.Texture2DArray, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11, 5)
-                TextureTarget.Texture2DMultisample, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11, samples = 4)
-                TextureTarget.Texture2DMultisampleArray, device.CreateImage(ImageDimension.Image2d(V2i(1024, 1024)), ImageFormat.Rgba8UNorm, 11, 5, samples = 4)
-                TextureTarget.TextureCubeMap, device.CreateImage(ImageDimension.ImageCube 1024, ImageFormat.Rgba8UNorm, 11)
-                TextureTarget.TextureCubeMapArray, device.CreateImage(ImageDimension.ImageCube 1024, ImageFormat.Rgba8UNorm, 11, 2)
-                TextureTarget.Texture3D, device.CreateImage(ImageDimension.Image3d(V3i(128,128,128)), ImageFormat.Rgba8UNorm, 2)
-            |]
-            
-        let size = 1024n * 1024n * 32n * 4n
-        let data = Marshal.AllocHGlobal size |> Microsoft.FSharp.NativeInterop.NativePtr.ofNativeInt<byte>
-
-        let mutable ptr = data
-        for i in 0L .. int64 size - 1L do
-            NativePtr.write ptr (uint8 i)
-            ptr <- NativePtr.add ptr 1
-
-        let size = V2i(128, 128)
-        use img = device.CreateImage(ImageDimension.Image2d size, ImageFormat.Depth32fStencil8, 2)
-        let part = img.[0, 0].[V2i(10,10) .. V2i(100,100)]
+        let size = V3i(128, 128, 128)
+        use img = device.CreateImage(ImageDimension.Image3d size, ImageFormat.R16UNorm, 2)
+        let part = img.[0, 0].[V3i(10,10,10) .. V3i(19,19,19)]
 
         let rand = RandomSystem()
-        let pimg = PixImage<float32>(Col.Format.Gray, part.Size.XY)
-        let timg = PixImage<float32>(Col.Format.Gray, part.Size.XY)
-        let b24 = (1 <<< 24) - 1
-        pimg.ChannelArray.[0].SetByCoord (fun c -> float32 (rand.UniformInt(b24)) / float32 b24) |> ignore
+        let pimg = PixVolume<uint16>(Col.Format.Gray, part.Size)
+        let timg = PixVolume<uint16>(Col.Format.Gray, part.Size)
+        let b24 = (1 <<< 20) - 1
+        pimg.ChannelArray.[0].SetByCoord (fun (c : V3l) -> uint16 (rand.UniformInt(b24))) |> ignore
         //pimg.GetMatrix<C4b>().SetByCoord (fun c -> rand.UniformC3f().ToC4b()) |> ignore
 
         use c = device.CreateCommandStream()
@@ -123,40 +78,9 @@ let main argv =
         c.Copy(part, timg)
         device.Run c
 
-        let equal = pimg.Volume.InnerProduct(timg.Volume, (=), true, (&&))
-        Log.warn "%A" equal
-
-        for (expected, img) in textures do
-            device.DebugReport <- false
-            let real = findTargets img
-            device.DebugReport <- true
-            
-            if not (Array.contains expected real) then
-                Log.warn "%A broken (was %A)" expected real
-            elif img.Samples <= 1 then
-                ()
-                //use c = device.CreateCommandStream()
-                //c.Copy(data, Col.Format.RGBA, img.[ImageAspect.Color, 0, *])
-                //c.Copy(img.[ImageAspect.Color, 0, *], data, Col.Format.RGBA)
-                //device.Run c
-
-
-
-
-            img.Dispose()
-
-        use buffer = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)
-        use buffer2 = device.CreateBuffer(4096L, BufferUsage.CopySrc ||| BufferUsage.CopyDst)
-        let data = Array.init 1024 id
-        let test : int[] = Array.zeroCreate 1024
-
-        use s = device.CreateCommandStream()
-        s.Copy(Memory data, buffer)
-        s.Copy(buffer, buffer2)
-        s.Copy(buffer2, Memory test)
-        device.Run s
-        if data <> test then 
-            Log.warn "bad"
+        let equal = pimg.Tensor4.InnerProduct(timg.Tensor4, (=), true, (&&))
+        Log.line "%A" equal
+        
         Log.stop()
     Log.stop()
     0

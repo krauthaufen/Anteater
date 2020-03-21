@@ -174,6 +174,7 @@ module ImageTargetExtensions =
             elif x = typeof<uint32> then PixelType.UnsignedInt
             elif x = typeof<int32> then PixelType.Int
             elif x = typeof<float32> then PixelType.Float
+            elif x = typeof<Depth24Stencil8> then PixelType.UnsignedInt
             else failwithf "[GL] unknown pixeltype: %A" x
 
     type Image with
