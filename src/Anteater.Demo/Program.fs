@@ -5,7 +5,10 @@ open Anteater
 open Anteater.OpenGL
 open Silk.NET.OpenGL
 open Microsoft.FSharp.Reflection
+open Microsoft.FSharp.NativeInterop
 open System.Runtime.InteropServices
+
+#nowarn "9"
 
 let allFeatures(version : Version) =
     let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true) |> Array.rev
@@ -37,7 +40,13 @@ let allFeatures(version : Version) =
 let main argv = 
     Log.start "Buffer copy and up/download"
 
-    for f in allFeatures (Version(4,1)) do
+    let features =
+        {
+            OpenGLFeatures.Default with
+                directState = false
+        }
+
+    for f in [features] do
         use device = 
             new OpenGLDevice { 
                 nVidia = true
@@ -90,7 +99,30 @@ let main argv =
                 TextureTarget.Texture3D, device.CreateImage(ImageDimension.Image3d(V3i(128,128,128)), ImageFormat.Rgba8UNorm, 2)
             |]
             
-        let data = Marshal.AllocHGlobal (1024n * 1024n * 11n * 4n) |> Microsoft.FSharp.NativeInterop.NativePtr.ofNativeInt<byte>
+        let size = 1024n * 1024n * 32n * 4n
+        let data = Marshal.AllocHGlobal size |> Microsoft.FSharp.NativeInterop.NativePtr.ofNativeInt<byte>
+
+        let mutable ptr = data
+        for i in 0L .. int64 size - 1L do
+            NativePtr.write ptr (uint8 i)
+            ptr <- NativePtr.add ptr 1
+
+        let size = V2i(128, 128)
+        use img = device.CreateImage(ImageDimension.Image2d size, ImageFormat.Rgba8UNorm, 2)
+        let pimg = PixImage<byte>(Col.Format.RGBA, img.Size.XY)
+
+        let rand = RandomSystem()
+        pimg.GetMatrix<C4b>().SetByCoord (fun c -> rand.UniformC3f().ToC4b()) |> ignore
+
+        let timg = PixImage<byte>(Col.Format.RGBA, img.Size.XY)
+
+        use c = device.CreateCommandStream()
+        c.Copy(pimg, img.[ImageAspect.Color, 0, 0])
+        c.Copy(img.[ImageAspect.Color, 0, 0], timg)
+        device.Run c
+
+        let equal = pimg.Volume.InnerProduct(timg.Volume, (=), true, (&&))
+        Log.warn "%A" equal
 
         for (expected, img) in textures do
             device.DebugReport <- false
@@ -100,9 +132,14 @@ let main argv =
             if not (Array.contains expected real) then
                 Log.warn "%A broken (was %A)" expected real
             elif img.Samples <= 1 then
-                use c = device.CreateCommandStream()
-                c.Copy(data, Col.Format.RGBA, img.[ImageAspect.Color, 0, 0])
-                device.Run c
+                ()
+                //use c = device.CreateCommandStream()
+                //c.Copy(data, Col.Format.RGBA, img.[ImageAspect.Color, 0, *])
+                //c.Copy(img.[ImageAspect.Color, 0, *], data, Col.Format.RGBA)
+                //device.Run c
+
+
+
 
             img.Dispose()
 

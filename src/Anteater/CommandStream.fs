@@ -27,7 +27,15 @@ type CommandStream() =
 
     
     /// Copy from a host-pointer to the given ImageSubresourceRegion.
-    abstract member Copy<'T when 'T : unmanaged> : src : nativeptr<'T> * fmt : Col.Format * dst : ImageSubresourceRegion -> unit
+    abstract member Copy<'T when 'T : unmanaged> : src : NativeTensor4<'T> * dst : ImageSubresourceRegion -> unit
+
+
+    abstract member Copy<'T when 'T : unmanaged> : src : ImageSubresourceRegion * dst : NativeTensor4<'T> -> unit
+
+    
+    abstract member Copy<'T when 'T : unmanaged> : src : Tensor4<'T> * dst : ImageSubresourceRegion -> unit
+    abstract member Copy<'T when 'T : unmanaged> : src : ImageSubresourceRegion * dst : Tensor4<'T> -> unit
+
 
     /// Release all resources associated with CommandStream.
     abstract member Dispose : disposing : bool -> unit

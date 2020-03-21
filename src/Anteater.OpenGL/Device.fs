@@ -589,10 +589,11 @@ type OpenGLDevice(cfg : DeviceConfig) =
             gl.DeleteTexture (unbox<uint32> handle)
         )
 
-    member x.DirectState = directState
-    member x.BufferStorage = bufferStorage
-    member x.CopyBuffer = copyBuffer
-    member x.CopyImage = copyImage
+    member internal x.GL = gl
+    member internal x.DirectState = directState
+    member internal x.BufferStorage = bufferStorage
+    member internal x.CopyBuffer = copyBuffer
+    member internal x.CopyImage = copyImage
 
     member x.Info = info
     member x.Features = info.features
@@ -700,7 +701,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
 
                 | None -> 
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, handle)
-                    gl.BufferData(BufferTargetARB.ArrayBuffer, uint32 size, VoidPtr.zero, BufferUsageARB.StaticDraw)
+                    gl.BufferData(BufferTargetARB.ArrayBuffer, uint32 size, VoidPtr.zero, BufferUsageARB.DynamicDraw)
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
 
                 new Anteater.Buffer(handle, size, usage, freeBuffer x)

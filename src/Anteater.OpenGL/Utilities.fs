@@ -42,6 +42,9 @@ module Utilities =
             
         let ofNativePtr (ptr : nativeptr<'a>) =
             ptr |> NativePtr.toVoidPtr
+            
+        let toNativePtr<'a when 'a : unmanaged> (ptr : voidptr) =
+            NativePtr.ofVoidPtr<'a> ptr
 
 
     type ExecutableStream() =

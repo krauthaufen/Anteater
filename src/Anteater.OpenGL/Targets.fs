@@ -151,6 +151,20 @@ module ImageTargetExtensions =
             | Col.Format.RGBP -> 4
             | _ -> failwithf "[GL] unknown col.format: %A" x
 
+
+    type ImageFormat with
+        member x.PixelFormat =
+            match ImageFormat.colorFormat x with
+            | ColorFormat.Gray -> PixelFormat.Red
+            | ColorFormat.Rg -> PixelFormat.RG
+            | ColorFormat.SRgb -> PixelFormat.Rgb
+            | ColorFormat.SRgba -> PixelFormat.Rgba
+            | ColorFormat.Rgb -> PixelFormat.Rgb
+            | ColorFormat.Rgba -> PixelFormat.Rgba
+            | ColorFormat.Depth -> PixelFormat.DepthComponent
+            | ColorFormat.DepthStencil -> PixelFormat.DepthStencil
+            | _ -> PixelFormat.Red
+
     type Type with
         member x.PixelType =
             if x = typeof<uint8> then PixelType.UnsignedByte

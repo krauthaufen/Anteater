@@ -276,6 +276,148 @@ module ImageFormat =
             ImageFormat.Depth32fStencil8, ColorFormat.DepthStencil
             ImageFormat.Depth24Stencil8, ColorFormat.DepthStencil
         ]
+        
+    let channels = 
+        lookupTable [
+            // single channel
+            ImageFormat.R8UNorm,        1
+            ImageFormat.R8SNorm,        1
+            ImageFormat.R8Int,          1
+            ImageFormat.R8UInt,         1
+            ImageFormat.R16UNorm,       1
+            ImageFormat.R16SNorm,       1
+            ImageFormat.R16Float,       1
+            ImageFormat.R16Int,         1
+            ImageFormat.R16UInt,        1
+            ImageFormat.R32Float,       1
+            ImageFormat.R32Int,         1
+            ImageFormat.R32UInt,        1
+    
+            // dual channel
+            ImageFormat.Rg8UNorm,       2
+            ImageFormat.Rg8SNorm,       2
+            ImageFormat.Rg8Int,         2
+            ImageFormat.Rg8UInt,        2
+            ImageFormat.Rg16UNorm,      2
+            ImageFormat.Rg16SNorm,      2
+            ImageFormat.Rg16Float,      2
+            ImageFormat.Rg16Int,        2
+            ImageFormat.Rg16UInt,       2
+            ImageFormat.Rg32Float,      2
+            ImageFormat.Rg32Int,        2
+            ImageFormat.Rg32UInt,       2
+
+            // three channel
+            ImageFormat.Rgb8UNorm,      3
+            ImageFormat.Rgb8SNorm,      3
+            ImageFormat.Rgb8Int,        3
+            ImageFormat.Rgb8UInt,       3
+            ImageFormat.Rgb16UNorm,     3
+            ImageFormat.Rgb16SNorm,     3
+            ImageFormat.Rgb16Float,     3
+            ImageFormat.Rgb16Int,       3
+            ImageFormat.Rgb16UInt,      3
+            ImageFormat.Rgb32Float,     3
+            ImageFormat.Rgb32Int,       3
+            ImageFormat.Rgb32UInt,      3
+
+            // four channel
+            ImageFormat.Rgba8UNorm,     4
+            ImageFormat.Rgba8SNorm,     4
+            ImageFormat.Rgba8Int,       4
+            ImageFormat.Rgba8UInt,      4
+            ImageFormat.Rgba16UNorm,    4
+            ImageFormat.Rgba16SNorm,    4
+            ImageFormat.Rgba16Float,    4
+            ImageFormat.Rgba16Int,      4
+            ImageFormat.Rgba16UInt,     4
+            ImageFormat.Rgba32Float,    4
+            ImageFormat.Rgba32Int,      4
+            ImageFormat.Rgba32UInt,     4
+    
+            // srgb
+            ImageFormat.SRgb8Unorm,     3
+            ImageFormat.SRgba8Unorm,    4
+
+            // depth formats
+            ImageFormat.Depth16,            1
+            ImageFormat.Depth24,            1
+            ImageFormat.Depth32,            1
+            ImageFormat.Depth32f,           1
+            ImageFormat.Depth32fStencil8,   1
+            ImageFormat.Depth24Stencil8,    2
+        ]
+  
+    let channelTypes = 
+        lookupTable [
+            // single channel
+            ImageFormat.R8UNorm,        HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.R8SNorm,        HashSet.ofList [ typeof<int8> ]
+            ImageFormat.R8Int,          HashSet.ofList [ typeof<int8> ]
+            ImageFormat.R8UInt,         HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.R16UNorm,       HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.R16SNorm,       HashSet.ofList [ typeof<int16> ]
+            ImageFormat.R16Float,       HashSet.ofList [ typeof<float16> ]
+            ImageFormat.R16Int,         HashSet.ofList [ typeof<int16> ]
+            ImageFormat.R16UInt,        HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.R32Float,       HashSet.ofList [ typeof<float32> ]
+            ImageFormat.R32Int,         HashSet.ofList [ typeof<int32> ]
+            ImageFormat.R32UInt,        HashSet.ofList [ typeof<uint32> ]
+    
+            // dual channel
+            ImageFormat.Rg8UNorm,       HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.Rg8SNorm,       HashSet.ofList [ typeof<int8> ]
+            ImageFormat.Rg8Int,         HashSet.ofList [ typeof<int8> ]
+            ImageFormat.Rg8UInt,        HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.Rg16UNorm,      HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.Rg16SNorm,      HashSet.ofList [ typeof<int16> ]
+            ImageFormat.Rg16Float,      HashSet.ofList [ typeof<float16> ]
+            ImageFormat.Rg16Int,        HashSet.ofList [ typeof<int16> ]
+            ImageFormat.Rg16UInt,       HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.Rg32Float,      HashSet.ofList [ typeof<float32> ]
+            ImageFormat.Rg32Int,        HashSet.ofList [ typeof<int32> ]
+            ImageFormat.Rg32UInt,       HashSet.ofList [ typeof<uint32> ]
+
+            // three channel
+            ImageFormat.Rgb8UNorm,      HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.Rgb8SNorm,      HashSet.ofList [ typeof<int8> ]
+            ImageFormat.Rgb8Int,        HashSet.ofList [ typeof<int8> ]
+            ImageFormat.Rgb8UInt,       HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.Rgb16UNorm,     HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.Rgb16SNorm,     HashSet.ofList [ typeof<int16> ]
+            ImageFormat.Rgb16Float,     HashSet.ofList [ typeof<float16> ]
+            ImageFormat.Rgb16Int,       HashSet.ofList [ typeof<int16> ]
+            ImageFormat.Rgb16UInt,      HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.Rgb32Float,     HashSet.ofList [ typeof<float32> ]
+            ImageFormat.Rgb32Int,       HashSet.ofList [ typeof<int32> ]
+            ImageFormat.Rgb32UInt,      HashSet.ofList [ typeof<uint32> ]
+
+            // four channel
+            ImageFormat.Rgba8UNorm,     HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.Rgba8SNorm,     HashSet.ofList [ typeof<int8> ]
+            ImageFormat.Rgba8Int,       HashSet.ofList [ typeof<int8> ]
+            ImageFormat.Rgba8UInt,      HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.Rgba16UNorm,    HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.Rgba16SNorm,    HashSet.ofList [ typeof<int16> ]
+            ImageFormat.Rgba16Float,    HashSet.ofList [ typeof<float16> ]
+            ImageFormat.Rgba16Int,      HashSet.ofList [ typeof<int16> ]
+            ImageFormat.Rgba16UInt,     HashSet.ofList [ typeof<uint16> ]
+            ImageFormat.Rgba32Float,    HashSet.ofList [ typeof<float32> ]
+            ImageFormat.Rgba32Int,      HashSet.ofList [ typeof<int32> ]
+            ImageFormat.Rgba32UInt,     HashSet.ofList [ typeof<uint32> ]
+    
+            // srgb
+            ImageFormat.SRgb8Unorm,     HashSet.ofList [ typeof<uint8> ]
+            ImageFormat.SRgba8Unorm,    HashSet.ofList [ typeof<uint8> ]
+
+            // depth formats
+            ImageFormat.Depth16,            HashSet.ofList [ typeof<float16> ]
+            ImageFormat.Depth24,            HashSet.ofList [ typeof<float32>; typeof<uint32> ]
+            ImageFormat.Depth32,            HashSet.ofList [ typeof<float32>; typeof<uint32> ]
+            ImageFormat.Depth32f,           HashSet.ofList [ typeof<float32> ]
+            ImageFormat.Depth32fStencil8,   HashSet.ofList [ typeof<float32> ]
+            ImageFormat.Depth24Stencil8,    HashSet.ofList [ typeof<float32>; typeof<uint32> ]
+        ]
 
 [<Flags>]
 type ImageAspect =
