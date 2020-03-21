@@ -69,11 +69,9 @@ type internal TexturePBOExtensions private() =
                 let map() =
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, temp)
                     let tempPtr = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, 0n, unativeint sizeInBytes, uint32 mapMask) |> VoidPtr.toNativePtr<'T>
-                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
                     NativeTensor4<'T>(tempPtr, info)
 
                 let unmap() =
-                    gl.BindBuffer(BufferTargetARB.ArrayBuffer, temp)
                     let res = gl.UnmapBuffer(BufferTargetARB.ArrayBuffer)
                     gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0u)
                     res
@@ -89,6 +87,40 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
     inherit OpenGLCommandStream()
 
     let actions = System.Collections.Generic.List<GL -> unit>()
+
+    member private x.CheckCopy<'T> (host : Tensor4Info, server : ImageSubresourceRegion) =
+
+        let srcFormat = server.Resource.Image.Format
+        if not (HashSet.contains (typeof<'T>) (ImageFormat.channelTypes srcFormat)) then
+            failwithf "[GL] cannot copy between image with format %A and Tensor<%s>" srcFormat typeof<'T>.Name
+        
+        let srcChannels = ImageFormat.channels srcFormat
+        let dstChannels =
+            match server.Resource.Image.Dimension with
+            | ImageDimension.Image1d _ -> 
+                let dstSize = V2i(host.SX, host.SZ)
+                let srcSize = V2i(server.Size.X, server.Resource.Slices)
+                if dstSize <> srcSize then failwithf "[GL] mismatching sizes %A vs %A" dstSize srcSize
+                int host.SY
+            | ImageDimension.Image2d _ -> 
+                let dstSize = V3i(host.SX, host.SY, host.SW)
+                let srcSize = V3i(server.Size.X, server.Size.Y, server.Resource.Slices)
+                if dstSize <> srcSize then failwithf "[GL] mismatching sizes %A vs %A" dstSize srcSize
+                int host.SZ
+            | ImageDimension.ImageCube _ -> 
+                let dstSize = V3i(host.SX, host.SY, max 1L (host.SW / 6L))
+                let srcSize = V3i(server.Size.X, server.Size.Y, server.Resource.Slices)
+                if dstSize <> srcSize then failwithf "[GL] mismatching sizes %A vs %A" dstSize srcSize
+                int host.SZ
+            | ImageDimension.Image3d _ -> 
+                let dstSize = V3i host.Size.XYZ
+                let srcSize = server.Size
+                if dstSize <> srcSize then failwithf "[GL] mismatching sizes %A vs %A" dstSize srcSize
+                int host.SW
+        if dstChannels <> srcChannels then
+            failwithf "[GL] cannot copy between image with %d and Tensor with %d channels" srcChannels dstChannels
+
+
 
     override x.Dispose(_) =
         actions.Clear()
@@ -433,80 +465,64 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
                 gl.DeleteBuffer temp
 
         else
-            failwith "sub-region download not implemented atm."
+            match srcImage.Dimension with
+            | ImageDimension.Image2d _ ->
+                actions.Add <| fun gl ->
+                    let fbo = gl.GenFramebuffer()
+                    gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, fbo)
+
+                    let buffer, map, unmap = device.CreatePixelBuffer<'T>(channels, src, false)
+
+                    gl.BindBuffer(BufferTargetARB.PixelPackBuffer, buffer)
+                    let mutable offset = 0n
+                    for slice in srcResource.BaseSlice .. srcResource.BaseSlice + srcResource.Slices - 1 do
+                        let att = 
+                            if ImageFormat.hasDepth srcImage.Format then
+                                if ImageFormat.hasStencil srcImage.Format then unbox<FramebufferAttachment>(int GLEnum.DepthStencilAttachment)
+                                else unbox<FramebufferAttachment>(int GLEnum.DepthAttachment)
+                            else
+                                gl.ReadBuffer(ReadBufferMode.ColorAttachment0)
+                                FramebufferAttachment.ColorAttachment0
+
+                        if srcImage.IsArray then
+                            gl.FramebufferTextureLayer(FramebufferTarget.ReadFramebuffer, att, sh, srcResource.Level, slice)
+                        else
+                            gl.FramebufferTexture2D(FramebufferTarget.ReadFramebuffer, att, TextureTarget.Texture2D, sh, srcResource.Level)
+
+                        let status = gl.CheckFramebufferStatus(FramebufferTarget.ReadFramebuffer)
+                        if status <> GLEnum.FramebufferComplete then failwithf "[GL] framebuffer error: %A" status
+
+                        gl.ReadPixels(src.Offset.X, src.Offset.Y, uint32 src.Size.X, uint32 src.Size.Y, fmt, typ, VoidPtr.ofNativeInt offset)
+                        offset <- offset + nativeint sliceSize
+                    gl.BindBuffer(BufferTargetARB.PixelPackBuffer, 0u)
+
+
+
+                    gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0u)
+                    gl.DeleteFramebuffer fbo
+
+                    let src = map()
+                    let dst, release = acquire()
+                    NativeTensor4.copy src dst
+                    unmap() |> ignore
+                    release()
+
+
+                    gl.DeleteBuffer buffer
+
+            | _ -> 
+                failwith "sub-region download not implemented atm."
 
     
     override x.Copy<'T when 'T : unmanaged>(src : NativeTensor4<'T>, dst : ImageSubresourceRegion) =  
-        let dstFormat = dst.Resource.Image.Format
-        if not (HashSet.contains (typeof<'T>) (ImageFormat.channelTypes dstFormat)) then
-            failwithf "[GL] cannot upload %s to image with format %A" typeof<'T>.Name dstFormat
-        
-        let dstChannels = ImageFormat.channels dstFormat
-        let srcChannels =
-            match dst.Resource.Image.Dimension with
-            | ImageDimension.Image1d _ -> 
-                let srcSize = V2i(src.SX, src.SZ)
-                let dstSize = V2i(dst.Size.X, dst.Resource.Slices)
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SY
-            | ImageDimension.Image2d _ -> 
-                let srcSize = V3i(src.SX, src.SY, src.SW)
-                let dstSize = V3i(dst.Size.X, dst.Size.Y, dst.Resource.Slices)
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SZ
-            | ImageDimension.ImageCube _ -> 
-                let srcSize = V3i(src.SX, src.SY, max 1L (src.SW / 6L))
-                let dstSize = V3i(dst.Size.X, dst.Size.Y, dst.Resource.Slices)
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SZ
-            | ImageDimension.Image3d _ -> 
-                let srcSize = V3i src.Size.XYZ
-                let dstSize = dst.Size
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SW
-
-        if dstChannels <> srcChannels then
-            failwithf "[GL] cannot upload data with %d channels to image with %d channels" srcChannels dstChannels
-
-
+        x.CheckCopy<'T>(src.Info, dst)
         x.Copy(
             (fun () -> src, id), 
             dst
         )
 
     override x.Copy<'T when 'T : unmanaged>(src : Tensor4<'T>, dst : ImageSubresourceRegion) =
-        let dstFormat = dst.Resource.Image.Format
-        if not (HashSet.contains (typeof<'T>) (ImageFormat.channelTypes dstFormat)) then
-            failwithf "[GL] cannot upload %s to image with format %A" typeof<'T>.Name dstFormat
-        
-        let dstChannels = ImageFormat.channels dstFormat
-        let srcChannels =
-            match dst.Resource.Image.Dimension with
-            | ImageDimension.Image1d _ -> 
-                let srcSize = V2i(src.SX, src.SZ)
-                let dstSize = V2i(dst.Size.X, dst.Resource.Slices)
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SY
-            | ImageDimension.Image2d _ -> 
-                let srcSize = V3i(src.SX, src.SY, src.SW)
-                let dstSize = V3i(dst.Size.X, dst.Size.Y, dst.Resource.Slices)
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SZ
-            | ImageDimension.ImageCube _ -> 
-                let srcSize = V3i(src.SX, src.SY, max 1L (src.SW / 6L))
-                let dstSize = V3i(dst.Size.X, dst.Size.Y, dst.Resource.Slices)
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SZ
-            | ImageDimension.Image3d _ -> 
-                let srcSize = V3i src.Size.XYZ
-                let dstSize = dst.Size
-                if srcSize <> dstSize then failwithf "[GL] mismatching size for upload %A vs %A" srcSize dstSize
-                int src.SW
-
-        if dstChannels <> srcChannels then
-            failwithf "[GL] cannot upload data with %d channels to image with %d channels" srcChannels dstChannels
-
-
+        x.CheckCopy<'T>(src.Info, dst)
         let pin() =
             let gc = GCHandle.Alloc(src.Data, GCHandleType.Pinned)
             let tensor =
@@ -518,73 +534,13 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
         x.Copy(pin, dst)
         
     override x.Copy<'T when 'T : unmanaged>(src : ImageSubresourceRegion, dst : NativeTensor4<'T>) =
-
-        let srcFormat = src.Resource.Image.Format
-        if not (HashSet.contains (typeof<'T>) (ImageFormat.channelTypes srcFormat)) then
-            failwithf "[GL] cannot download image with format %A to %s" srcFormat typeof<'T>.Name
-        
-        let srcChannels = ImageFormat.channels srcFormat
-        let dstChannels =
-            match src.Resource.Image.Dimension with
-            | ImageDimension.Image1d _ -> 
-                let dstSize = V2i(dst.SX, dst.SZ)
-                let srcSize = V2i(src.Size.X, src.Resource.Slices)
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SY
-            | ImageDimension.Image2d _ -> 
-                let dstSize = V3i(dst.SX, dst.SY, dst.SW)
-                let srcSize = V3i(src.Size.X, src.Size.Y, src.Resource.Slices)
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SZ
-            | ImageDimension.ImageCube _ -> 
-                let dstSize = V3i(dst.SX, dst.SY, max 1L (dst.SW / 6L))
-                let srcSize = V3i(src.Size.X, src.Size.Y, src.Resource.Slices)
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SZ
-            | ImageDimension.Image3d _ -> 
-                let dstSize = V3i dst.Size.XYZ
-                let srcSize = src.Size
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SW
-        if dstChannels <> srcChannels then
-            failwithf "[GL] cannot download data with %d channels to tensor with %d channels" srcChannels dstChannels
-
-        x.Copy(
-            src,
+        x.CheckCopy<'T>(dst.Info, src)
+        x.Copy(src,
             (fun () -> dst, id)
         )
     
     override x.Copy<'T when 'T : unmanaged>(src : ImageSubresourceRegion, dst : Tensor4<'T>) =
-        let srcFormat = src.Resource.Image.Format
-        if not (HashSet.contains (typeof<'T>) (ImageFormat.channelTypes srcFormat)) then
-            failwithf "[GL] cannot download image with format %A to %s" srcFormat typeof<'T>.Name
-        
-        let srcChannels = ImageFormat.channels srcFormat
-        let dstChannels =
-            match src.Resource.Image.Dimension with
-            | ImageDimension.Image1d _ -> 
-                let dstSize = V2i(dst.SX, dst.SZ)
-                let srcSize = V2i(src.Size.X, src.Resource.Slices)
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SY
-            | ImageDimension.Image2d _ -> 
-                let dstSize = V3i(dst.SX, dst.SY, dst.SW)
-                let srcSize = V3i(src.Size.X, src.Size.Y, src.Resource.Slices)
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SZ
-            | ImageDimension.ImageCube _ -> 
-                let dstSize = V3i(dst.SX, dst.SY, max 1L (dst.SW / 6L))
-                let srcSize = V3i(src.Size.X, src.Size.Y, src.Resource.Slices)
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SZ
-            | ImageDimension.Image3d _ -> 
-                let dstSize = V3i dst.Size.XYZ
-                let srcSize = src.Size
-                if dstSize <> srcSize then failwithf "[GL] mismatching size for upload %A vs %A" dstSize srcSize
-                int dst.SW
-        if dstChannels <> srcChannels then
-            failwithf "[GL] cannot download data with %d channels to tensor with %d channels" srcChannels dstChannels
-
+        x.CheckCopy<'T>(dst.Info, src)
         let pin() =
             let gc = GCHandle.Alloc(dst.Data, GCHandleType.Pinned)
             let tensor =

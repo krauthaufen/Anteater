@@ -162,7 +162,7 @@ module ImageTargetExtensions =
             | ColorFormat.Rgb -> PixelFormat.Rgb
             | ColorFormat.Rgba -> PixelFormat.Rgba
             | ColorFormat.Depth -> PixelFormat.DepthComponent
-            | ColorFormat.DepthStencil -> PixelFormat.DepthStencil
+            | ColorFormat.DepthStencil -> PixelFormat.DepthComponent
             | _ -> PixelFormat.Red
 
     type Type with

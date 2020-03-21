@@ -125,3 +125,5 @@ module Utilities =
 
             current <- ptr + nativeint p
             length <- l
+
+            

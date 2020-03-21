@@ -108,17 +108,19 @@ let main argv =
             ptr <- NativePtr.add ptr 1
 
         let size = V2i(128, 128)
-        use img = device.CreateImage(ImageDimension.Image2d size, ImageFormat.Rgba8UNorm, 2)
-        let pimg = PixImage<byte>(Col.Format.RGBA, img.Size.XY)
+        use img = device.CreateImage(ImageDimension.Image2d size, ImageFormat.Depth32fStencil8, 2)
+        let part = img.[0, 0].[V2i(10,10) .. V2i(100,100)]
 
         let rand = RandomSystem()
-        pimg.GetMatrix<C4b>().SetByCoord (fun c -> rand.UniformC3f().ToC4b()) |> ignore
-
-        let timg = PixImage<byte>(Col.Format.RGBA, img.Size.XY)
+        let pimg = PixImage<float32>(Col.Format.Gray, part.Size.XY)
+        let timg = PixImage<float32>(Col.Format.Gray, part.Size.XY)
+        let b24 = (1 <<< 24) - 1
+        pimg.ChannelArray.[0].SetByCoord (fun c -> float32 (rand.UniformInt(b24)) / float32 b24) |> ignore
+        //pimg.GetMatrix<C4b>().SetByCoord (fun c -> rand.UniformC3f().ToC4b()) |> ignore
 
         use c = device.CreateCommandStream()
-        c.Copy(pimg, img.[ImageAspect.Color, 0, 0])
-        c.Copy(img.[ImageAspect.Color, 0, 0], timg)
+        c.Copy(pimg, part)
+        c.Copy(part, timg)
         device.Run c
 
         let equal = pimg.Volume.InnerProduct(timg.Volume, (=), true, (&&))
