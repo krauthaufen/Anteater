@@ -17,6 +17,7 @@
     <Compile Include="Utilities.fs" />
     <Compile Include="ContextCreation.fs" />
     <Compile Include="Buffers.fs" />
+    <Compile Include="Images.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

@@ -47,8 +47,8 @@ type internal TexturePBOExtensions private() =
         let slices = dstResource.Slices
 
         let copySize = dst.Size
-        let sizeInBytes = nativeint copySize.X * nativeint copySize.Y * nativeint copySize.Z * nativeint channels * nativeint sizeof<'T>
-
+        let sliceSize = nativeint copySize.X * nativeint copySize.Y * nativeint copySize.Z * nativeint channels * nativeint sizeof<'T>
+        let mutable sizeInBytes = sliceSize
         let info =
             match dstImage.Dimension with
             | ImageDimension.Image1d _ ->
@@ -56,6 +56,7 @@ type internal TexturePBOExtensions private() =
             | ImageDimension.Image2d _ ->
                 Tensor4Info(0L, V4l(copySize.X, copySize.Y, channels, slices), V4l(int64 channels, int64 channels * int64 copySize.X, 1L, int64 channels * int64 copySize.X * int64 copySize.Y))
             | ImageDimension.ImageCube _ ->
+                sizeInBytes <- sizeInBytes * 6n
                 Tensor4Info(0L, V4l(copySize.X, copySize.Y, channels, 6 * slices), V4l(int64 channels, int64 channels * int64 copySize.X, 1L, int64 channels * int64 copySize.X * int64 copySize.Y))
             | ImageDimension.Image3d _ ->
                 Tensor4Info(0L, V4l(copySize.X, copySize.Y, copySize.Z, channels), V4l(int64 channels, int64 channels * int64 copySize.X, int64 channels * int64 copySize.X * int64 copySize.Y, 1L))
@@ -408,7 +409,7 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
                     ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, dst.Offset.Z, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dst.Size.Z, fmt, typ, VoidPtr.zero)
                     
                 | ImageDimension.ImageCube _ when not dstImage.IsArray ->
-                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, 0, uint32 dst.Size.X, uint32 dst.Size.Y, 6u, fmt, typ, VoidPtr.zero)
+                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, 0, uint32 dst.Size.X, uint32 dst.Size.Y, 1u, fmt, typ, VoidPtr.zero)
 
                 | ImageDimension.ImageCube _ ->
                     ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dstResource.Slices, fmt, typ, VoidPtr.zero)
@@ -449,11 +450,11 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
 
                 | ImageDimension.ImageCube _ when not dstImage.IsArray ->
                     gl.BindTexture(TextureTarget.TextureCubeMap, dh)
-                    let mutable z = 0
+                    let mutable offset = 0n
+                    let step = nativeint dstTensor.Delta.W * nativeint sizeof<'T>
                     for face in int TextureTarget.TextureCubeMapPositiveX .. int TextureTarget.TextureCubeMapNegativeZ do
-                        let offset = Vec.dot (V4l(0,0,0,z)) dstTensor.Delta
-                        gl.TexSubImage2D(unbox<TextureTarget> face, dstLevel, dst.Offset.X, dst.Offset.Y, uint32 dst.Size.X, uint32 dst.Size.Y, fmt, typ, VoidPtr.ofNativeInt (nativeint offset))
-                        z <- z + 1
+                        gl.TexSubImage2D(unbox<TextureTarget> face, dstLevel, dst.Offset.X, dst.Offset.Y, uint32 dst.Size.X, uint32 dst.Size.Y, fmt, typ, VoidPtr.ofNativeInt offset)
+                        offset <- offset + step
                     gl.BindTexture(TextureTarget.TextureCubeMap, 0u)
 
                 | ImageDimension.ImageCube _ ->

@@ -276,6 +276,9 @@ type OpenGLDevice(cfg : DeviceConfig) =
 
     static let deviceThread (queue : CommandQueue<GL -> unit>) (ctx : ContextHandle) (gl : GL) (id : int) () =
         ctx.MakeCurrent()
+        gl.PixelStore(PixelStoreParameter.PackAlignment, 1)
+        gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1)
+
         try
             let mutable current = queue.Take(id)
             while Option.isSome current do
@@ -315,7 +318,6 @@ type OpenGLDevice(cfg : DeviceConfig) =
             else    
                 match Reflection.ctor ctor with
                 | Some ctor ->
-                    Log.line "using %s" t.Name
                     Some ctor
                 | None ->
                     None
@@ -792,8 +794,8 @@ type OpenGLDevice(cfg : DeviceConfig) =
                         gl.TexParameterI(info.target, TextureParameterName.TextureBaseLevel, &baseLevel)
                         gl.TexParameterI(info.target, TextureParameterName.TextureMaxLevel, &maxLevel)
 
-                        let t = PixelType.Float
-                        let f = PixelFormat.Rgba
+                        let t = Seq.head(ImageFormat.channelTypes format).PixelType
+                        let f = format.PixelFormat
 
                         match info.imageDimension with
                         | 1 ->

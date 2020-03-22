@@ -3,8 +3,16 @@
 open Expecto
 open Expecto.Impl
 
+let allTests = 
+    [
+        ContextCreation.simple
+        Buffers.simple
+        Images.simple
+    ]
+
 [<EntryPoint>]
 let main args =
-    let cfg = { ExpectoConfig.defaultConfig with ``parallel`` = false }
-    runTests cfg Buffers.simple |> ignore
+    nvidia <- true
+    let cfg = { ExpectoConfig.defaultConfig with ``parallel`` = false; verbosity = Logging.LogLevel.Debug }
+    runTestsInAssembly cfg [||] |> ignore
     0

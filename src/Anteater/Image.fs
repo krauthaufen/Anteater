@@ -209,6 +209,77 @@ module ImageFormat =
             ImageFormat.Depth24Stencil8, 4
         ]
 
+    let isIntegerFormat = 
+        lookupTable [
+            // single channel
+            ImageFormat.R8UNorm,        false
+            ImageFormat.R8SNorm,        false
+            ImageFormat.R8Int,          true
+            ImageFormat.R8UInt,         true
+            ImageFormat.R16UNorm,       false
+            ImageFormat.R16SNorm,       false
+            ImageFormat.R16Float,       false
+            ImageFormat.R16Int,         true
+            ImageFormat.R16UInt,        true
+            ImageFormat.R32Float,       false
+            ImageFormat.R32Int,         true
+            ImageFormat.R32UInt,        true
+    
+            // dual channel
+            ImageFormat.Rg8UNorm,       false
+            ImageFormat.Rg8SNorm,       false
+            ImageFormat.Rg8Int,         true
+            ImageFormat.Rg8UInt,        true
+            ImageFormat.Rg16UNorm,      false
+            ImageFormat.Rg16SNorm,      false
+            ImageFormat.Rg16Float,      false
+            ImageFormat.Rg16Int,        true
+            ImageFormat.Rg16UInt,       true
+            ImageFormat.Rg32Float,      false
+            ImageFormat.Rg32Int,        true
+            ImageFormat.Rg32UInt,       true
+
+            // three channel
+            ImageFormat.Rgb8UNorm,      false
+            ImageFormat.Rgb8SNorm,      false
+            ImageFormat.Rgb8Int,        true
+            ImageFormat.Rgb8UInt,       true
+            ImageFormat.Rgb16UNorm,     false
+            ImageFormat.Rgb16SNorm,     false
+            ImageFormat.Rgb16Float,     false
+            ImageFormat.Rgb16Int,       true
+            ImageFormat.Rgb16UInt,      true
+            ImageFormat.Rgb32Float,     false
+            ImageFormat.Rgb32Int,       true
+            ImageFormat.Rgb32UInt,      true
+
+            // four channel
+            ImageFormat.Rgba8UNorm,     false
+            ImageFormat.Rgba8SNorm,     false
+            ImageFormat.Rgba8Int,       true
+            ImageFormat.Rgba8UInt,      true
+            ImageFormat.Rgba16UNorm,    false
+            ImageFormat.Rgba16SNorm,    false
+            ImageFormat.Rgba16Float,    false
+            ImageFormat.Rgba16Int,      true
+            ImageFormat.Rgba16UInt,     true
+            ImageFormat.Rgba32Float,    false
+            ImageFormat.Rgba32Int,      true
+            ImageFormat.Rgba32UInt,     true
+    
+            // srgb
+            ImageFormat.SRgb8Unorm,     false
+            ImageFormat.SRgba8Unorm,    false
+
+            // depth formats
+            ImageFormat.Depth16,        false
+            ImageFormat.Depth24,        false
+            ImageFormat.Depth32,        false
+            ImageFormat.Depth32f,       false
+            ImageFormat.Depth32fStencil8, false
+            ImageFormat.Depth24Stencil8, false
+        ]
+
     let colorFormat = 
         lookupTable [
             // single channel

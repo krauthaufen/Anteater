@@ -153,17 +153,29 @@ module ImageTargetExtensions =
 
 
     type ImageFormat with
+        
         member x.PixelFormat =
-            match ImageFormat.colorFormat x with
-            | ColorFormat.Gray -> PixelFormat.Red
-            | ColorFormat.Rg -> PixelFormat.RG
-            | ColorFormat.SRgb -> PixelFormat.Rgb
-            | ColorFormat.SRgba -> PixelFormat.Rgba
-            | ColorFormat.Rgb -> PixelFormat.Rgb
-            | ColorFormat.Rgba -> PixelFormat.Rgba
-            | ColorFormat.Depth -> PixelFormat.DepthComponent
-            | ColorFormat.DepthStencil -> PixelFormat.DepthComponent
-            | _ -> PixelFormat.Red
+            if ImageFormat.isIntegerFormat x then
+                match ImageFormat.colorFormat x with
+                | ColorFormat.Gray -> PixelFormat.RedInteger
+                | ColorFormat.Rg -> PixelFormat.RGInteger
+                | ColorFormat.SRgb -> PixelFormat.RgbInteger
+                | ColorFormat.SRgba -> PixelFormat.RgbaInteger
+                | ColorFormat.Rgb -> PixelFormat.RgbInteger
+                | ColorFormat.Rgba -> PixelFormat.RgbaInteger
+                | _ -> PixelFormat.RedInteger
+
+            else
+                match ImageFormat.colorFormat x with
+                | ColorFormat.Gray -> PixelFormat.Red
+                | ColorFormat.Rg -> PixelFormat.RG
+                | ColorFormat.SRgb -> PixelFormat.Rgb
+                | ColorFormat.SRgba -> PixelFormat.Rgba
+                | ColorFormat.Rgb -> PixelFormat.Rgb
+                | ColorFormat.Rgba -> PixelFormat.Rgba
+                | ColorFormat.Depth -> PixelFormat.DepthComponent
+                | ColorFormat.DepthStencil -> PixelFormat.DepthComponent
+                | _ -> PixelFormat.Red
 
     type Type with
         member x.PixelType =
@@ -174,6 +186,7 @@ module ImageTargetExtensions =
             elif x = typeof<uint32> then PixelType.UnsignedInt
             elif x = typeof<int32> then PixelType.Int
             elif x = typeof<float32> then PixelType.Float
+            elif x = typeof<float16> then unbox<PixelType> (int GLEnum.HalfFloat)
             elif x = typeof<Depth24Stencil8> then PixelType.UnsignedInt
             else failwithf "[GL] unknown pixeltype: %A" x
 

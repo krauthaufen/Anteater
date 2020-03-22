@@ -1,8 +1,15 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <RunSettings>
   <RunConfiguration>
+    <TargetFrameworkVersion>netcoreapp3.1</TargetFrameworkVersion>
     <MaxCpuCount>1</MaxCpuCount>
     <TargetPlatform>x64</TargetPlatform>
-    <TestSessionTimeout>10000</TestSessionTimeout>
+    <TestSessionTimeout>1000000</TestSessionTimeout>
+    <DisableParallelization>true</DisableParallelization>
   </RunConfiguration>
+  <MSTest>
+    <MapInconclusiveToFailed>True</MapInconclusiveToFailed>
+    <CaptureTraceOutput>True</CaptureTraceOutput>
+    <ForcedLegacyMode>True</ForcedLegacyMode>
+  </MSTest>
 </RunSettings>

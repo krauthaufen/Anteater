@@ -8,10 +8,14 @@ open Utilities
 
 [<Tests>]
 let simple = 
-    testList "Device" [
+    testList "create device" [
     
-        testPropertyWithConfig cfg "creation" (fun (f : OpenGLFeatures) ->
-            use d = new OpenGLDevice { queues = 1; nVidia = false; features = f; debug = true }
+        testPropertyWithConfig { cfg with maxTest = 3 } "integrated" (fun (f : OpenGLFeatures) ->
+            let d = getDevice { queues = 1; nVidia = false; features = f; debug = false }
+            ()
+        ) 
+        testPropertyWithConfig { cfg with maxTest = 3 } "nvidia" (fun (f : OpenGLFeatures) ->
+            let d = getDevice { queues = 1; nVidia = true; features = f; debug = false }
             ()
         ) 
     ]
