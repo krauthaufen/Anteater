@@ -409,7 +409,7 @@ type internal ManagedOpenGLCommandStream(device : OpenGLDevice) =
                     ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, dst.Offset.Z, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dst.Size.Z, fmt, typ, VoidPtr.zero)
                     
                 | ImageDimension.ImageCube _ when not dstImage.IsArray ->
-                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, 0, uint32 dst.Size.X, uint32 dst.Size.Y, 1u, fmt, typ, VoidPtr.zero)
+                    ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, 0, uint32 dst.Size.X, uint32 dst.Size.Y, 6u, fmt, typ, VoidPtr.zero)
 
                 | ImageDimension.ImageCube _ ->
                     ext.TextureSubImage3D(dh, dstLevel, dst.Offset.X, dst.Offset.Y, dstResource.BaseSlice, uint32 dst.Size.X, uint32 dst.Size.Y, uint32 dstResource.Slices, fmt, typ, VoidPtr.zero)
