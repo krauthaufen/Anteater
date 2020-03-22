@@ -176,7 +176,7 @@ module internal DeviceInfo =
                                     gl.GetInternalformat(target, ifmt, InternalFormatPName.GetTextureImageType, 1u, Span data)
  
                                     data.[0] <> 0 && 
-                                    data.[0] <> 0x8F9C // intel reports GL_SIGNED_NORMALIZED as pixelType for SNORM formats
+                                    data.[0] <> 0x8F9C // BUG: intel reports GL_SIGNED_NORMALIZED as pixelType for SNORM formats
 
                                 gl.GetInternalformat(target, ifmt, InternalFormatPName.ImagePixelType, 1u, Span data)
                                 let upload = data.[0] <> 0
