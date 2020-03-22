@@ -10,21 +10,21 @@ open System.IO
 open Anteater
 open Microsoft.FSharp.Reflection
 
-let path = 
-    let arch =
-        match RuntimeInformation.ProcessArchitecture with
-        | Architecture.X64 -> "AMD64"
-        | Architecture.X86 -> "x86"
-        | a -> failwithf "bad architecture: %A" a
-    let plat =
-        if RuntimeInformation.IsOSPlatform OSPlatform.Windows then Path.Combine("windows", arch, "glfw3.dll")
-        elif RuntimeInformation.IsOSPlatform OSPlatform.Linux then Path.Combine("linux", arch, "libglfw.so.3")
-        elif RuntimeInformation.IsOSPlatform OSPlatform.OSX then Path.Combine("mac", arch, "libglfw.3.dylib")
-        else failwith "bad platform"
-    Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "..", "lib", "Native", plat)
+//let path = 
+//    let arch =
+//        match RuntimeInformation.ProcessArchitecture with
+//        | Architecture.X64 -> "AMD64"
+//        | Architecture.X86 -> "x86"
+//        | a -> failwithf "bad architecture: %A" a
+//    let plat =
+//        if RuntimeInformation.IsOSPlatform OSPlatform.Windows then Path.Combine("windows", arch, "glfw3.dll")
+//        elif RuntimeInformation.IsOSPlatform OSPlatform.Linux then Path.Combine("linux", arch, "libglfw.so.3")
+//        elif RuntimeInformation.IsOSPlatform OSPlatform.OSX then Path.Combine("mac", arch, "libglfw.3.dylib")
+//        else failwith "bad platform"
+//    Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "..", "lib", "Native", plat)
 
 
-do NativeLibrary.TryLoad path |> ignore
+//do NativeLibrary.TryLoad path |> ignore
 
 let mutable forceDedicated = Environment.GetEnvironmentVariable("NVIDIA") |> isNull |> not
 
