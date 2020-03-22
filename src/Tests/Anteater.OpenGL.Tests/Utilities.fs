@@ -209,24 +209,28 @@ type VersionGenerator =
                 | 3 -> PixFormat(typ, Col.Format.RGB)
                 | _ -> PixFormat(typ, Col.Format.RGBA)
 
-            let! dim = Gen.choose (1,4)
+            let! dim = Gen.choose (1,2)
             let mutable imageDim = ImageDimension.Image1d 0
+            let align (s : int) =
+                let v = s &&& ~~~3
+                if v = 0 then 4
+                else v
             match dim with
             | 1 ->
                 let! s = Gen.choose (1, 512)
-                imageDim <- ImageDimension.Image1d (s)
+                imageDim <- ImageDimension.Image1d (align s)
             | 2 ->
                 let! sx = Gen.choose (1, 512)
                 let! sy = Gen.choose (1, 512)
-                imageDim <- ImageDimension.Image2d (V2i(sx, sy))
+                imageDim <- ImageDimension.Image2d (V2i(align sx, align sy))
             | 3 ->
                 let! s = Gen.choose (1, 512)
-                imageDim <- ImageDimension.ImageCube (s)
+                imageDim <- ImageDimension.ImageCube (align s)
             | _ ->
                 let! sx = Gen.choose (1, 128)
                 let! sy = Gen.choose (1, 128)
                 let! sz = Gen.choose (1, 128)
-                imageDim <- ImageDimension.Image3d(V3i(sx,sy,sz))
+                imageDim <- ImageDimension.Image3d(V3i(align sx,align sy,align sz))
 
             //let! slices = 
             //    if dim > 3 then Gen.elements [1]

@@ -71,6 +71,26 @@ type DeviceConfig =
         debug       : bool
     }
 
+type ImageDescription =
+    {
+        format  : ImageFormat
+        kind    : ImageKind
+        array   : bool
+        ms      : bool
+    }
+
+type ImageFeatures =
+    {
+        maxSize     : V3i
+        maxCount    : int
+        render      : bool
+        upload      : bool
+        download    : bool
+        sample      : bool
+        samples     : Set<int>
+    }
+
+
 type DeviceInfo =
     {
         vendor      : string
@@ -80,6 +100,7 @@ type DeviceInfo =
 
         extensions  : Set<string>
         features    : OpenGLFeatures
+        formats     : Map<ImageDescription, ImageFeatures>
     }
 
 
@@ -90,10 +111,139 @@ module internal DeviceInfo =
 
     let versionRx = Regex @"^([0-9]+)[ \t]*\.[ \t]*([0-9]+)([ \t]*\.[ \t]*([0-9]+))?"
 
+    let private readImageFeatures (gl : GL) =
+        let formats = Enum.GetValues(typeof<ImageFormat>) |> unbox<ImageFormat[]>
+        let kinds = [|ImageKind.Image1d; ImageKind.Image2d; ImageKind.Image3d; ImageKind.ImageCube |]
 
+        let mutable result = Map.empty
+        
+        
+        match gl.TryGetExtension<ArbInternalformatQuery>() with
+        | (true, gl) ->
+            for kind in kinds do
+                let arr = if kind = ImageKind.Image3d then [false] else [false; true]
+                for array in arr do
+                    let mss = if kind = ImageKind.Image2d then [false;true] else [false]
+                    for ms in mss do
+                        let target =
+                            match kind with
+                            | ImageKind.Image1d ->  
+                                if array then TextureTarget.Texture1DArray
+                                else TextureTarget.Texture1D
+                            | ImageKind.Image2d ->  
+                                if array then 
+                                    if ms then TextureTarget.Texture2DMultisampleArray
+                                    else TextureTarget.Texture2DArray
+                                else 
+                                    if ms then TextureTarget.Texture2DMultisample
+                                    else TextureTarget.Texture2D
+                            | ImageKind.Image3d ->  
+                                TextureTarget.Texture3D
+                            | ImageKind.ImageCube ->  
+                                if array then TextureTarget.TextureCubeMapArray
+                                else TextureTarget.TextureCubeMap
+
+                        
+                        for fmt in formats do
+                            let ifmt = unbox<InternalFormat> (int fmt)
+                            let data = [| 0 |]
+                            gl.GetInternalformat(
+                                target,
+                                ifmt,
+                                InternalFormatPName.InternalformatSupported, 
+                                1u,
+                                Span data
+                            )
+
+
+                            if data.[0] <> 0 then
+                                gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxWidth, 1u, Span data)
+                                let x = data.[0]
+                                gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxHeight, 1u, Span data)
+                                let y = data.[0]
+                                gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxDepth, 1u, Span data)
+                                let z = data.[0]
+                                gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxLayers, 1u, Span data)
+                                let maxCount = data.[0]
+
+                                if ImageFormat.hasDepth fmt then gl.GetInternalformat(target, ifmt, InternalFormatPName.DepthRenderable, 1u, Span data)
+                                else gl.GetInternalformat(target, ifmt, InternalFormatPName.ColorRenderable, 1u, Span data)
+                                let renderable = data.[0] <> 0
+                            
+
+
+                                let download =
+                                    if target = TextureTarget.Texture2D || target = TextureTarget.Texture2DArray then
+                                        gl.GetInternalformat(target, ifmt, InternalFormatPName.ReadPixelsType, 1u, Span data)
+                                        data.[0] <> 0
+                                    else
+                                        gl.GetInternalformat(target, ifmt, InternalFormatPName.GetTextureImageType, 1u, Span data)
+                                        data.[0] <> 0
+
+                                gl.GetInternalformat(target, ifmt, InternalFormatPName.ImagePixelType, 1u, Span data)
+                                let upload = data.[0] <> 0
+                            
+                                gl.GetInternalformat(target, ifmt, InternalFormatPName.NumSampleCounts, 1u, Span data)
+                                let cnt = data.[0]
+
+                                let arr : int[] = Array.zeroCreate cnt
+                                gl.GetInternalformat(target, ifmt, InternalFormatPName.Samples, uint32 arr.Length, Span arr)
+
+                                let key =
+                                    {
+                                        format  = fmt
+                                        kind    = kind
+                                        array   = array
+                                        ms      = ms
+                                    }
+
+                                let value =
+                                    { 
+                                        maxSize = V3i(x,y,z)
+                                        samples = Set.ofArray arr |> Set.add 1
+                                        maxCount = maxCount
+                                        render = renderable
+                                        upload = upload
+                                        download = download
+                                        sample = true
+                                    }
+
+                                result <- Map.add key value result
+                        
+                                ()
+
+        | _ ->
+            for kind in kinds do
+                let arr = if kind = ImageKind.Image3d then [false] else [false; true]
+                for array in arr do
+                    let mss = if kind = ImageKind.Image2d then [false;true] else [false]
+                    for ms in mss do
+                        for fmt in formats do
+                            
+                            let key =
+                                {
+                                    format  = fmt
+                                    kind    = kind
+                                    array   = array
+                                    ms      = ms
+                                }
+
+                            let value =
+                                { 
+                                    maxSize = V3i(65536, 65536, 65536)
+                                    samples = Set.ofArray [| 1; 2; 4; 8; 16 |]
+                                    maxCount = 1024
+                                    render = true
+                                    upload = true
+                                    download = true
+                                    sample = true
+                                }
+
+                            result <- Map.add key value result
+                        
+        result
 
     let read (gl : GL) (cfg : DeviceConfig) =
-
         let glsl =
             let glsl = gl.GetString(StringName.ShadingLanguageVersion)
             let m = versionRx.Match glsl
@@ -115,6 +265,9 @@ module internal DeviceInfo =
         let glsl = Version(glsl.Major, glsl.Minor / 10, glsl.Minor % 10)
         let version = Version(gl.GetInteger(GetPName.MajorVersion), gl.GetInteger(GetPName.MinorVersion))
         let extensions = Seq.init (gl.GetInteger GetPName.NumExtensions) (fun i -> gl.GetString(StringName.Extensions, uint32 i)) |> Set.ofSeq
+        
+        let formats = readImageFeatures gl
+        
         {
             vendor = gl.GetString(StringName.Vendor)
             renderer = gl.GetString(StringName.Renderer)
@@ -122,6 +275,7 @@ module internal DeviceInfo =
             glsl = glsl
 
             extensions = extensions
+            formats = formats
             features = 
                 {
                     version = version
@@ -718,6 +872,13 @@ type OpenGLDevice(cfg : DeviceConfig) =
         let slices = defaultArg slices 1
         let fmt = unbox<InternalFormat> (int format)
 
+        let key = { format = format; kind = dim.Kind; array = isArray; ms = samples > 1 }
+        match Map.tryFind key info.formats with
+        | Some info when dim.GetImageSize(1).AllSmallerOrEqual info.maxSize && slices <= info.maxCount && Set.contains samples info.samples ->
+            ()
+        | v ->
+            failwithf "[GL] cannot create image %A (supported: %A)" key v
+
         match dim with
         | ImageDimension.ImageCube _ when samples > 1 -> failwith "[GL] multisampled cubemaps are not supported (please use arrays)"
         | _ -> ()
@@ -825,8 +986,60 @@ type OpenGLDevice(cfg : DeviceConfig) =
                 gl.BindTexture(info.target, 0u)
                 new Image(handle, dim, format, levels, (if isArray then Some slices else None), samples, freeImage x)
         )
+        
+    member x.TryGetFormatFeatures(dim : ImageDimension, format : ImageFormat, ?levels : int, ?slices : int, ?samples : int) =
+        let isArray = Option.isSome slices
+        let levels = defaultArg levels 1
+        let samples = defaultArg samples 1
+        let slices = defaultArg slices 1
+        let fmt = unbox<InternalFormat> (int format)
+        let size = dim.GetImageSize(1)
 
-           
+        let key = { format = format; kind = dim.Kind; array = isArray; ms = samples > 1 }
+        match Map.tryFind key info.formats with
+        | Some info when size.AllSmallerOrEqual info.maxSize && slices <= info.maxCount && Set.contains samples info.samples ->
+            Some info
+        | _ ->
+            None
+
+    member x.GetFormatFeatures(dim : ImageKind, format : ImageFormat, ?array : bool, ?samples : int) =
+        let key =
+            {
+                kind = dim
+                format = format
+                array = defaultArg array false
+                ms = defaultArg samples 1 > 1
+            }
+
+        match Map.tryFind key info.formats with
+        | Some info ->  
+            info
+        | _ ->
+            {
+                maxSize = V3i(0,0,0)
+                upload = false
+                download = false
+                render = false
+                sample = false
+                samples = Set.empty
+                maxCount = 0
+            }
+
+        //x.Run(fun gl -> 
+        //    let samples = defaultArg samples 1
+        //    let array = defaultArg array false
+        //    let info = dim.GetTarget(samples, array)
+
+        //    let supported = [| 0 |]
+        //    gl.GetInternalformat(
+        //        info.target, 
+        //        unbox<InternalFormat>(int format), 
+        //        InternalFormatPName.InternalformatSupported, 
+        //        1u, Span supported
+        //    )
+
+        //    supported.[0] <> 0
+        //)
 
     override x.CreateCommandStream() =
         createCommandStream x :> CommandStream

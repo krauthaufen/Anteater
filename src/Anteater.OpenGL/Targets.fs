@@ -155,7 +155,7 @@ module ImageTargetExtensions =
     type ImageFormat with
         
         member x.PixelFormat =
-            if ImageFormat.isIntegerFormat x then
+            if ImageFormat.isInteger x then
                 match ImageFormat.colorFormat x with
                 | ColorFormat.Gray -> PixelFormat.RedInteger
                 | ColorFormat.Rg -> PixelFormat.RGInteger

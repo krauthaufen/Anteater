@@ -9,12 +9,27 @@ open Microsoft.FSharp.NativeInterop
 
 #nowarn "9"
 
+
+[<RequireQualifiedAccess>]
+type ImageKind =
+    | Image1d
+    | Image2d
+    | Image3d
+    | ImageCube
+
 [<RequireQualifiedAccess>]
 type ImageDimension =
     | Image1d of size : int
     | Image2d of size : V2i
     | Image3d of size : V3i
     | ImageCube of size : int
+
+    member x.Kind =
+        match x with
+        | ImageDimension.Image1d _ -> ImageKind.Image1d
+        | ImageDimension.Image2d _ -> ImageKind.Image2d
+        | ImageDimension.Image3d _ -> ImageKind.Image3d
+        | ImageDimension.ImageCube _ -> ImageKind.ImageCube
 
     member x.GetImageSize(count : int) =
         match x with
@@ -209,7 +224,7 @@ module ImageFormat =
             ImageFormat.Depth24Stencil8, 4
         ]
 
-    let isIntegerFormat = 
+    let isInteger = 
         lookupTable [
             // single channel
             ImageFormat.R8UNorm,        false
@@ -266,6 +281,77 @@ module ImageFormat =
             ImageFormat.Rgba32Float,    false
             ImageFormat.Rgba32Int,      true
             ImageFormat.Rgba32UInt,     true
+    
+            // srgb
+            ImageFormat.SRgb8Unorm,     false
+            ImageFormat.SRgba8Unorm,    false
+
+            // depth formats
+            ImageFormat.Depth16,        false
+            ImageFormat.Depth24,        false
+            ImageFormat.Depth32,        false
+            ImageFormat.Depth32f,       false
+            ImageFormat.Depth32fStencil8, false
+            ImageFormat.Depth24Stencil8, false
+        ]
+        
+    let isSigned = 
+        lookupTable [
+            // single channel
+            ImageFormat.R8UNorm,        false
+            ImageFormat.R8SNorm,        true
+            ImageFormat.R8Int,          true
+            ImageFormat.R8UInt,         false
+            ImageFormat.R16UNorm,       false
+            ImageFormat.R16SNorm,       true
+            ImageFormat.R16Float,       true
+            ImageFormat.R16Int,         true
+            ImageFormat.R16UInt,        false
+            ImageFormat.R32Float,       true
+            ImageFormat.R32Int,         true
+            ImageFormat.R32UInt,        false
+    
+            // dual channel
+            ImageFormat.Rg8UNorm,       false
+            ImageFormat.Rg8SNorm,       true
+            ImageFormat.Rg8Int,         true
+            ImageFormat.Rg8UInt,        false
+            ImageFormat.Rg16UNorm,      false
+            ImageFormat.Rg16SNorm,      true
+            ImageFormat.Rg16Float,      true
+            ImageFormat.Rg16Int,        true
+            ImageFormat.Rg16UInt,       false
+            ImageFormat.Rg32Float,      true
+            ImageFormat.Rg32Int,        true
+            ImageFormat.Rg32UInt,       false
+
+            // three channel
+            ImageFormat.Rgb8UNorm,      false
+            ImageFormat.Rgb8SNorm,      true
+            ImageFormat.Rgb8Int,        true
+            ImageFormat.Rgb8UInt,       false
+            ImageFormat.Rgb16UNorm,     false
+            ImageFormat.Rgb16SNorm,     true
+            ImageFormat.Rgb16Float,     true
+            ImageFormat.Rgb16Int,       true
+            ImageFormat.Rgb16UInt,      false
+            ImageFormat.Rgb32Float,     true
+            ImageFormat.Rgb32Int,       true
+            ImageFormat.Rgb32UInt,      false
+
+            // four channel
+            ImageFormat.Rgba8UNorm,     false
+            ImageFormat.Rgba8SNorm,     true
+            ImageFormat.Rgba8Int,       true
+            ImageFormat.Rgba8UInt,      false
+            ImageFormat.Rgba16UNorm,    false
+            ImageFormat.Rgba16SNorm,    true
+            ImageFormat.Rgba16Float,    true
+            ImageFormat.Rgba16Int,      true
+            ImageFormat.Rgba16UInt,     false
+            ImageFormat.Rgba32Float,    true
+            ImageFormat.Rgba32Int,      true
+            ImageFormat.Rgba32UInt,     false
     
             // srgb
             ImageFormat.SRgb8Unorm,     false
