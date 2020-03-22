@@ -10,6 +10,7 @@ open Fake.DotNet
 open Fake.IO
 open Fake.IO.Globbing.Operators
 open Fake.Tools
+open Fake.DotNet.Testing
 open System.Text.RegularExpressions
 
 do Environment.CurrentDirectory <- __SOURCE_DIRECTORY__
@@ -341,32 +342,31 @@ Target.create "Push" (fun _ ->
 
 
 
-Target.create "RunTestNvidia" (fun _ ->
+Target.create "RunTests" (fun _ ->
     let ci = Environment.GetEnvironmentVariable "GITHUB_WORKFLOW"
     if isNull ci then
-        let options (o : DotNet.TestOptions) =
-            { (o.WithRedirectOutput false) with
-                NoBuild = true
-                NoRestore = true
-                Configuration = DotNet.BuildConfiguration.Release
-                Logger = Some "console;verbosity=normal"
-            }.WithEnvironment (Map.ofList ["NVIDIA", "true"])
-        DotNet.test options "Anteater.sln"
-)
-Target.create "RunTestIntegrated" (fun _ ->
-    let ci = Environment.GetEnvironmentVariable "GITHUB_WORKFLOW"
-    if isNull ci then
-        let options (o : DotNet.TestOptions) =
-            { (o.WithRedirectOutput false) with
-                NoBuild = true
-                NoRestore = true
-                Configuration = DotNet.BuildConfiguration.Release
-                Logger = Some "console;verbosity=normal"
-            }
-        DotNet.test options "Anteater.sln"
-)
+        let path = Path.Combine(__SOURCE_DIRECTORY__, "bin/Release/netcoreapp3.1/Anteater.OpenGL.Tests.dll")
+        let paths = [path]
 
-Target.create "RunTest" ignore
+        Trace.trace "NVIDIA"
+        paths |> Expecto.run (fun p ->
+            { p with 
+                Parallel = false
+                PrintVersion = false
+                Summary = true
+                CustomArgs = ["--nvidia"] 
+            }
+        )
+        
+        Trace.trace "INTEGRATED"
+        paths |> Expecto.run (fun p ->
+            { p with 
+                Parallel = false
+                PrintVersion = false
+                Summary = true
+            }
+        )
+)
 
 
 Target.create "Default" ignore
@@ -445,8 +445,7 @@ Target.create "ReleaseDocs" (fun _ ->
     reallyDelete 5
 )
 
-"RunTestIntegrated" ==> "RunTest"
-"RunTestNvidia" ==> "RunTest"
+Target.create "Test" ignore
 
 "Compile" ==> 
     "Docs"
@@ -455,21 +454,23 @@ Target.create "ReleaseDocs" (fun _ ->
     "GenerateDocs" ==> 
     "ReleaseDocs"
 
+    
+"Compile" ==> "Test"
+"RunTests" ==> "Test"
 
 "CheckPush" ?=> "Compile"
-"Compile" ?=> "RunTestIntegrated"
-"Compile" ?=> "RunTestNvidia"
-"RunTest" ?=> "Pack"
+"Compile" ?=> "RunTests"
+"RunTests" ?=> "Pack"
 
 "Compile" ==> "Pack"
 
 "Pack" ==> "Push"
-"RunTest" ==> "Push"
+"RunTests" ==> "Push"
 "CheckPush" ==> "Push"
 
 
 "Compile" ==> "Default"
-"RunTest" ==> "Default"
+"RunTests" ==> "Default"
 
 
 Target.runOrDefault "Default"

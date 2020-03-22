@@ -26,14 +26,14 @@ let path =
 
 do NativeLibrary.TryLoad path |> ignore
 
-let mutable nvidia = Environment.GetEnvironmentVariable("NVIDIA") |> isNull |> not
+let mutable forceDedicated = Environment.GetEnvironmentVariable("NVIDIA") |> isNull |> not
+
 
 [<AutoOpen>]
 module DeviceExtensions =
     let private info =
         lazy (
-            use d = new OpenGLDevice { queues = 1; features = OpenGLFeatures.Default; debug = false; nVidia = nvidia }
-            Log.warn "USING: %s" d.Info.renderer
+            use d = new OpenGLDevice { queues = 1; features = OpenGLFeatures.Default; debug = false; forceDedicated = forceDedicated }
             d.Info
         )
 
@@ -337,6 +337,6 @@ let private devices = System.Collections.Concurrent.ConcurrentDictionary<DeviceC
 
 let getDevice (features : DeviceConfig) =
     devices.GetOrAdd(features, fun features ->
-        new OpenGLDevice { features with nVidia = nvidia }
+        new OpenGLDevice { features with forceDedicated = forceDedicated }
     )
 

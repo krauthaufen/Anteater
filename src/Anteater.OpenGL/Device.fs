@@ -31,16 +31,16 @@ type OpenGLFeatures =
     override x.ToString() =
         let exts =
             [
-                if x.directState then yield "DirectStateAccess"
-                if x.copyBuffer then yield "CopyBuffer"
-                if x.copyImage then yield "CopyImage"
-                if x.bufferStorage then yield "BufferStorage"
-                if x.textureStorage then yield "TextureStorage"
+                if x.directState then yield "DS"
+                if x.copyBuffer then yield "CB"
+                if x.copyImage then yield "CI"
+                if x.bufferStorage then yield "BS"
+                if x.textureStorage then yield "TS"
             ]
 
         match exts with
-        | [] -> sprintf "GL%d%d0" x.version.Major x.version.Minor
-        | _ -> String.concat "; " exts |> sprintf "GL%d%d0{%s}" x.version.Major x.version.Minor
+        | [] -> sprintf "GL%d%d" x.version.Major x.version.Minor
+        | _ -> String.concat "|" exts |> sprintf "GL%d%d{%s}" x.version.Major x.version.Minor
 
     
     static member None =
@@ -65,7 +65,7 @@ type OpenGLFeatures =
 
 type DeviceConfig =
     {
-        nVidia      : bool
+        forceDedicated      : bool
         queues      : int
         features    : OpenGLFeatures
         debug       : bool
@@ -98,6 +98,7 @@ type DeviceInfo =
         version     : Version
         glsl        : Version
 
+        debug       : bool
         extensions  : Set<string>
         features    : OpenGLFeatures
         formats     : Map<ImageDescription, ImageFeatures>
@@ -267,11 +268,14 @@ module internal DeviceInfo =
         
         let formats = readImageFeatures gl
         
+        let debug = ContextHandle.Current.Value.GetProcAddress "glDebugMessageCallback" <> 0n
+
         {
             vendor = gl.GetString(StringName.Vendor)
             renderer = gl.GetString(StringName.Renderer)
             version = version
             glsl = glsl
+            debug = debug
 
             extensions = extensions
             formats = formats
@@ -420,7 +424,7 @@ type OpenGLDebugMessage =
 type OpenGLDevice(cfg : DeviceConfig) =
     inherit Device()
 
-    do if cfg.nVidia then DynamicLinker.tryLoadLibrary ("nvapi64" + libraryExtension) |> ignore
+    do if cfg.forceDedicated then DynamicLinker.tryLoadLibrary ("nvapi64" + libraryExtension) |> ignore
 
     static let toBufferStorageMask (usage : BufferUsage) =
         let mutable res = BufferStorageMask.MapReadBit ||| BufferStorageMask.MapWriteBit
@@ -547,7 +551,8 @@ type OpenGLDevice(cfg : DeviceConfig) =
 
     let info =
         useContext (fun () ->
-            DeviceInfo.read gl cfg
+            let info = DeviceInfo.read gl cfg
+            { info with debug = cfg.debug && info.debug }
         )
 
     let directState =
@@ -630,7 +635,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
             ()
 
     let debugMessages =
-        if cfg.debug then
+        if info.debug then
             let all = System.Collections.Generic.HashSet<IObserver<OpenGLDebugMessage>>()
 
             runAll (fun _ gl ->
@@ -690,11 +695,11 @@ type OpenGLDevice(cfg : DeviceConfig) =
                 member x.Subscribe _ = { new IDisposable with member x.Dispose() = () }
             }
 
-    let mutable debugSeverity = if cfg.debug then 4 else 0
+    let mutable debugSeverity = if info.debug then 4 else 0
     let mutable debugOuputSubscription : option<IDisposable> = None
 
     let setDebugReport (v : bool) =
-        if cfg.debug then
+        if info.debug then
             match debugOuputSubscription with
             | Some s when not v -> 
                 s.Dispose()
@@ -713,7 +718,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
                 ()
 
     let setDebugSeverity (value : int) =
-        if cfg.debug then
+        if info.debug then
             runAll (fun _ gl ->
                 if value < 4 then
                     gl.DebugMessageControl(DebugSource.DontCare, DebugType.DontCare, DebugSeverity.DontCare, 0u, NativePtr.zero, false)
@@ -733,7 +738,7 @@ type OpenGLDevice(cfg : DeviceConfig) =
             debugSeverity <- value
 
     do setDebugSeverity debugSeverity
-       setDebugReport cfg.debug
+       setDebugReport info.debug
 
     static let freeBuffer (this : OpenGLDevice) (handle : obj) =
         this.Start(fun gl ->

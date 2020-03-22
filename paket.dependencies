@@ -28,6 +28,7 @@ group Build
   nuget Fake.Core.ReleaseNotes ~> 5.19.1
   nuget Fake.Tools.Git ~> 5.19.1
   nuget Fake.Api.GitHub ~> 5.19.1
+  nuget Fake.DotNet.Testing.Expecto ~> 5.19.1
 
 group Docs
   framework: net461

@@ -7,9 +7,9 @@ open System
 open Utilities
 
 [<Tests>]
-let simple = 
-    testCase "create device" (fun () ->
-        let d = getDevice { queues = 1; nVidia = false; features = OpenGLFeatures.Default; debug = false }
+let tests = 
+    testCase "Device.create" (fun () ->
+        let d = getDevice { queues = 1; forceDedicated = false; features = OpenGLFeatures.Default; debug = false }
         ()
     ) 
 

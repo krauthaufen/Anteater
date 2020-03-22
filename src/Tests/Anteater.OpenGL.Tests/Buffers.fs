@@ -8,12 +8,12 @@ open Expecto
 open Utilities
 
 [<Tests>]
-let simple = 
-    testList "buffer roundtrip" (
+let roundtrip = 
+    testList "Buffer.roundtrip" (
         let mask = { OpenGLFeatures.None with directState = true; bufferStorage = true }
         allFeatures (System.Version(4,1)) mask |> Seq.toList |> List.map (fun features ->
             testCase (string features) (fun () ->
-                let d = getDevice { queues = 1; nVidia = false; features = features; debug = true }
+                let d = getDevice { queues = 1; forceDedicated = false; features = features; debug = true }
                 d.DebugSeverity <- 2
                 let data : int[] = Array.init 1024 id
                 let test : int[] = Array.zeroCreate 1024
@@ -29,11 +29,11 @@ let simple =
 
 [<Tests>]
 let withCopy = 
-    testList "buffer copy roundtrip" (
+    testList ("Buffer.copy roundtrip") (
         let mask = { OpenGLFeatures.None with directState = true; bufferStorage = true; copyBuffer = true}
         allFeatures (System.Version(4,1)) mask |> Seq.toList |> List.map (fun features ->
             testCase (string features) (fun () ->
-                let d = getDevice { queues = 1; nVidia = false; features = features; debug = true }
+                let d = getDevice { queues = 1; forceDedicated = false; features = features; debug = true }
                 d.DebugSeverity <- 2
                 let data : int[] = Array.init 1024 id
                 let test : int[] = Array.zeroCreate 1024

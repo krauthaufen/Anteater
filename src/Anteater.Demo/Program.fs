@@ -53,7 +53,7 @@ let main argv =
     for f in relevant do
         use device = 
             new OpenGLDevice { 
-                nVidia = true
+                forceDedicated = true
                 queues = 4
                 features = f
                 debug = true
