@@ -209,7 +209,7 @@ type VersionGenerator =
                 | 3 -> PixFormat(typ, Col.Format.RGB)
                 | _ -> PixFormat(typ, Col.Format.RGBA)
 
-            let! dim = Gen.choose (1,2)
+            let! dim = Gen.choose (1,4)
             let mutable imageDim = ImageDimension.Image1d 0
             match dim with
             | 1 ->
@@ -219,9 +219,9 @@ type VersionGenerator =
                 let! sx = Gen.choose (1, 512)
                 let! sy = Gen.choose (1, 512)
                 imageDim <- ImageDimension.Image2d (V2i(sx, sy))
-            //| 3 ->
-            //    let! s = Gen.choose (1, 512)
-            //    imageDim <- ImageDimension.ImageCube (s)
+            | 3 ->
+                let! s = Gen.choose (1, 512)
+                imageDim <- ImageDimension.ImageCube (s)
             | _ ->
                 let! sx = Gen.choose (1, 128)
                 let! sy = Gen.choose (1, 128)
