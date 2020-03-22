@@ -8,8 +8,8 @@ open Utilities
 
 [<Tests>]
 let simple = 
-    testPropertyWithConfig { cfg with maxTest = 10 } "create device" (fun (f : OpenGLFeatures) ->
-        let d = getDevice { queues = 1; nVidia = false; features = f; debug = false }
+    testCase "create device" (fun () ->
+        let d = getDevice { queues = 1; nVidia = false; features = OpenGLFeatures.Default; debug = false }
         ()
     ) 
 

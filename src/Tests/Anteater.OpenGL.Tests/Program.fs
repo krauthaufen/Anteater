@@ -3,16 +3,18 @@
 open Expecto
 open Expecto.Impl
 
-let allTests = 
-    [
-        ContextCreation.simple
-        Buffers.simple
-        Images.simple
-    ]
-
 [<EntryPoint>]
 let main args =
-    nvidia <- true
-    let cfg = { ExpectoConfig.defaultConfig with ``parallel`` = false; verbosity = Logging.LogLevel.Debug }
-    runTestsInAssembly cfg [||] |> ignore
-    0
+    let logger = Logging.LiterateConsoleTarget([|"expecto"|], Logging.LogLevel.Info)
+    nvidia <- args |> Array.exists (fun v -> v.ToLower().Contains "nvidia")
+
+    let cfg = 
+        { ExpectoConfig.defaultConfig with 
+            ``parallel`` = false
+            verbosity = Logging.LogLevel.Info 
+            noSpinner = false
+            printer = TestPrinters.defaultPrinter
+            colour = Logging.Colour256
+        }
+
+    runTestsInAssembly cfg [||]

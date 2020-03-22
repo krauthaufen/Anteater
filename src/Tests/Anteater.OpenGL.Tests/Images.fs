@@ -23,54 +23,75 @@ let runImageCopyTest (d : OpenGLDevice) (info : TextureScenario) =
     d.Run cmd
 
     let wrong = output.CountWrong input
-    Expect.isLessThanOrEqual wrong (100) "not equal"
+    Expect.equal wrong 0 "not equal"
 
 [<Tests>]
 let simple = 
-    testList "image roundtrip" [
-        
-        testPropertyWithConfig cfg "dsa" (fun (info : TextureScenario) ->
-            let device = 
-                getDevice { 
-                    queues = 1
-                    nVidia = true
-                    features = { OpenGLFeatures.Default with directState = true }
-                    debug = true 
-                }
+    testList "image roundtrip" (
+        let mask = { OpenGLFeatures.None with directState = true; textureStorage = true; bufferStorage = true}
+        allFeatures (System.Version(4,1)) mask |> Seq.toList |> List.map (fun features ->
+            testPropertyWithConfig cfg (string features) (fun (info : TextureScenario) ->
+                let device = 
+                    getDevice { 
+                        queues = 1
+                        nVidia = true
+                        features = features
+                        debug = true 
+                    }
 
-            match device.TryGetFormatFeatures(info.dimension, info.format) with
-            | Some features when features.upload && features.download ->
-                runImageCopyTest device info
-            | _ ->
-                () //Log.line "%A: { pix = (%s/%A); format = %A }" info.dimension info.pixFormat.Type.Name info.pixFormat.Format info.format
+                match device.TryGetFormatFeatures(info.dimension, info.format) with
+                | Some features when features.upload && features.download ->
+                    runImageCopyTest device info
+                | _ ->
+                    () //Log.line "%A: { pix = (%s/%A); format = %A }" info.dimension info.pixFormat.Type.Name info.pixFormat.Format info.format
+            
+            )
         )
-        testPropertyWithConfig cfg "nodsa" (fun (info : TextureScenario) ->
-            let device = 
-                getDevice { 
-                    queues = 1
-                    nVidia = true
-                    features = { OpenGLFeatures.Default with directState = false }
-                    debug = true 
-                }
-            match device.TryGetFormatFeatures(info.dimension, info.format) with
-            | Some features when features.upload && features.download ->
-                runImageCopyTest device info
-            | _ ->
-                () //Log.warn "%A: { pix = (%s/%A); format = %A }" info.dimension info.pixFormat.Type.Name info.pixFormat.Format info.format
-        )
-        testPropertyWithConfig cfg "notexstorage" (fun (info : TextureScenario) ->
-            let device = 
-                getDevice { 
-                    queues = 1
-                    nVidia = true
-                    features = { OpenGLFeatures.Default with directState = false; textureStorage = false }
-                    debug = true 
-                }
 
-            match device.TryGetFormatFeatures(info.dimension, info.format) with
-            | Some features when features.upload && features.download ->
-                runImageCopyTest device info
-            | _ -> 
-                () //Log.warn "%A: { pix = (%s/%A); format = %A }" info.dimension info.pixFormat.Type.Name info.pixFormat.Format info.format
-        )
-    ]
+        //if OpenGLDevice.PlatformInfo.features.textureStorage then
+        //    testPropertyWithConfig cfg "tstorage: on" (fun (info : TextureScenario) ->
+        //        let device = 
+        //            getDevice { 
+        //                queues = 1
+        //                nVidia = true
+        //                features = { OpenGLFeatures.Default with directState = false; textureStorage = true }
+        //                debug = true 
+        //            }
+        //        match device.TryGetFormatFeatures(info.dimension, info.format) with
+        //        | Some features when features.upload && features.download ->
+        //            runImageCopyTest device info
+        //        | _ ->
+        //            () //Log.warn "%A: { pix = (%s/%A); format = %A }" info.dimension info.pixFormat.Type.Name info.pixFormat.Format info.format
+        //    )
+            
+        //if OpenGLDevice.PlatformInfo.features.bufferStorage then
+        //    testPropertyWithConfig cfg "tstorage: on" (fun (info : TextureScenario) ->
+        //        let device = 
+        //            getDevice { 
+        //                queues = 1
+        //                nVidia = true
+        //                features = { OpenGLFeatures.Default with directState = false; textureStorage = true }
+        //                debug = true 
+        //            }
+        //        match device.TryGetFormatFeatures(info.dimension, info.format) with
+        //        | Some features when features.upload && features.download ->
+        //            runImageCopyTest device info
+        //        | _ ->
+        //            () //Log.warn "%A: { pix = (%s/%A); format = %A }" info.dimension info.pixFormat.Type.Name info.pixFormat.Format info.format
+        //    )
+        //testPropertyWithConfig cfg "notexstorage" (fun (info : TextureScenario) ->
+        //    let device = 
+        //        getDevice { 
+        //            queues = 1
+        //            nVidia = true
+        //            features = { OpenGLFeatures.Default with directState = false; textureStorage = false }
+        //            debug = true 
+        //        }
+
+        //    match device.TryGetFormatFeatures(info.dimension, info.format) with
+        //    | Some features when features.upload && features.download ->
+        //        runImageCopyTest device info
+        //    | _ -> 
+        //        () //Log.warn "%A: { pix = (%s/%A); format = %A }" info.dimension info.pixFormat.Type.Name info.pixFormat.Format info.format
+        //)
+    )

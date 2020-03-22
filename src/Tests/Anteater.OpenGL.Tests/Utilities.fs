@@ -26,20 +26,67 @@ let path =
 
 do NativeLibrary.TryLoad path |> ignore
 
-let allFeatures(version : Version) =
+let mutable nvidia = Environment.GetEnvironmentVariable("NVIDIA") |> isNull |> not
+
+[<AutoOpen>]
+module DeviceExtensions =
+    let private info =
+        lazy (
+            use d = new OpenGLDevice { queues = 1; features = OpenGLFeatures.Default; debug = false; nVidia = nvidia }
+            Log.warn "USING: %s" d.Info.renderer
+            d.Info
+        )
+
+    type OpenGLDevice with
+        static member PlatformInfo = info.Value
+
+
+    type DeviceInfo with
+        
+        member x.TryGetFormatFeatures(dim : ImageDimension, format : ImageFormat, ?levels : int, ?slices : int, ?samples : int) =
+            let isArray = Option.isSome slices
+            let levels = defaultArg levels 1
+            let samples = defaultArg samples 1
+            let slices = defaultArg slices 1
+            let size = dim.GetImageSize(1)
+
+            let key = { format = format; kind = dim.Kind; array = isArray; ms = samples > 1 }
+            match Map.tryFind key x.formats with
+            | Some info ->
+                if size.AllSmallerOrEqual info.maxSize && slices <= info.maxCount && Set.contains samples info.samples then
+                    Some info
+                else 
+                    None
+            | _ ->
+                None
+
+        member x.CanTestRoundtrip(dim : ImageDimension, format : ImageFormat, ?levels : int, ?slices : int, ?samples : int) =
+            match x.TryGetFormatFeatures(dim, format, ?levels = levels, ?slices = slices, ?samples = samples) with
+            | Some i -> i.upload && i.download
+            | None -> false
+
+
+let allFeatures (version : Version) (mask : OpenGLFeatures) =
     let fields = FSharpType.GetRecordFields(typeof<OpenGLFeatures>, true) |> Array.rev
 
     let rec all (i : int) (f : Reflection.PropertyInfo[]) =
         if i >= f.Length then
             [[]]
         elif f.[i].PropertyType = typeof<bool> then
-            let rest = all (i+1) f
-            rest |> List.collect (fun r ->
-                [
+            if f.[i].GetValue(OpenGLDevice.PlatformInfo.features) |> unbox && f.[i].GetValue(mask) |> unbox then
+                let rest = all (i+1) f
+                rest |> List.collect (fun r ->
+                    [
+                        (false :> obj) :: r
+                        (true :> obj) :: r
+                    ]
+                )
+            else
+                let rest = all (i+1) f
+                rest |> List.map (fun r ->
                     (false :> obj) :: r
-                    (true :> obj) :: r
-                ]
-            )
+                )
+                
         elif f.[i].PropertyType = typeof<Version> then
             all (i+1) f |> List.map (fun r -> (version :> obj) :: r)
         else 
@@ -49,6 +96,11 @@ let allFeatures(version : Version) =
     all 0 fields |> Seq.map (fun f ->
         FSharpValue.MakeRecord(typeof<OpenGLFeatures>, Array.rev (Seq.toArray (Seq.cast<obj> f)), true)
         |> unbox<OpenGLFeatures>
+    )
+    |> Seq.groupBy (fun f -> f.directState)
+    |> Seq.collect (fun (dsa, rest) ->
+        if dsa then Seq.singleton (Seq.last rest)
+        else rest
     )
 
 open FsCheck
@@ -183,6 +235,36 @@ module TextureScenario =
 
 
 type VersionGenerator =
+
+    static member OpenGLFeatures() =
+        gen {
+            let features = OpenGLDevice.PlatformInfo.features
+
+            let allFields = 
+                FSharpType.GetRecordFields (typeof<OpenGLFeatures>)
+
+            let values : obj[] = Array.zeroCreate allFields.Length
+
+            for i in 0 .. allFields.Length - 1 do
+                let f = allFields.[i]
+                if f.PropertyType = typeof<bool> then
+                    let v = f.GetValue(features) |> unbox<bool>
+                    if v then
+                        let! r = Arb.generate<bool>
+                        values.[i] <- r :> obj
+                    else
+                        values.[i] <- false :> obj
+                else
+                    values.[i] <- f.GetValue features
+
+
+            let res = FSharpValue.MakeRecord(typeof<OpenGLFeatures>, values) |> unbox<OpenGLFeatures>
+
+            return res
+
+        }
+        |> Arb.fromGen
+
     static member Version() =
         Gen.elements [
             Version(3,3)
@@ -243,15 +325,15 @@ type VersionGenerator =
                 slices    = 1
             }
 
-        } |> Arb.fromGen
+        } 
+        |> Gen.filter (fun info -> OpenGLDevice.PlatformInfo.CanTestRoundtrip(info.dimension, info.format))
+        |> Arb.fromGen
 
 
 let cfg = { FsCheckConfig.defaultConfig with maxTest = 100; arbitrary = [ typeof<VersionGenerator> ] }
 
 
 let private devices = System.Collections.Concurrent.ConcurrentDictionary<DeviceConfig, OpenGLDevice>()
-
-let mutable nvidia = true
 
 let getDevice (features : DeviceConfig) =
     devices.GetOrAdd(features, fun features ->

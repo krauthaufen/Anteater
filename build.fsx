@@ -341,7 +341,19 @@ Target.create "Push" (fun _ ->
 
 
 
-Target.create "RunTest" (fun _ ->
+Target.create "RunTestNvidia" (fun _ ->
+    let ci = Environment.GetEnvironmentVariable "GITHUB_WORKFLOW"
+    if isNull ci then
+        let options (o : DotNet.TestOptions) =
+            { (o.WithRedirectOutput false) with
+                NoBuild = true
+                NoRestore = true
+                Configuration = DotNet.BuildConfiguration.Release
+                Logger = Some "console;verbosity=normal"
+            }.WithEnvironment (Map.ofList ["NVIDIA", "true"])
+        DotNet.test options "Anteater.sln"
+)
+Target.create "RunTestIntegrated" (fun _ ->
     let ci = Environment.GetEnvironmentVariable "GITHUB_WORKFLOW"
     if isNull ci then
         let options (o : DotNet.TestOptions) =
@@ -353,6 +365,9 @@ Target.create "RunTest" (fun _ ->
             }
         DotNet.test options "Anteater.sln"
 )
+
+Target.create "RunTest" ignore
+
 
 Target.create "Default" ignore
 
@@ -430,6 +445,8 @@ Target.create "ReleaseDocs" (fun _ ->
     reallyDelete 5
 )
 
+"RunTestIntegrated" ==> "RunTest"
+"RunTestNvidia" ==> "RunTest"
 
 "Compile" ==> 
     "Docs"
@@ -440,7 +457,8 @@ Target.create "ReleaseDocs" (fun _ ->
 
 
 "CheckPush" ?=> "Compile"
-"Compile" ?=> "RunTest"
+"Compile" ?=> "RunTestIntegrated"
+"Compile" ?=> "RunTestNvidia"
 "RunTest" ?=> "Pack"
 
 "Compile" ==> "Pack"

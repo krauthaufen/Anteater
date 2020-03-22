@@ -39,8 +39,8 @@ type OpenGLFeatures =
             ]
 
         match exts with
-        | [] -> sprintf "OpenGL %A" x.version
-        | _ -> String.concat "; " exts |> sprintf "OpenGL %A { %s }" x.version
+        | [] -> sprintf "GL%d%d0" x.version.Major x.version.Minor
+        | _ -> String.concat "; " exts |> sprintf "GL%d%d0{%s}" x.version.Major x.version.Minor
 
     
     static member None =
@@ -160,11 +160,11 @@ module internal DeviceInfo =
                                 gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxWidth, 1u, Span data)
                                 let x = data.[0]
                                 gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxHeight, 1u, Span data)
-                                let y = data.[0]
+                                let y = max 1 data.[0]
                                 gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxDepth, 1u, Span data)
-                                let z = data.[0]
+                                let z = max 1 data.[0]
                                 gl.GetInternalformat(target, ifmt, InternalFormatPName.MaxLayers, 1u, Span data)
-                                let maxCount = data.[0]
+                                let maxCount = max 1 data.[0]
 
                                 if ImageFormat.hasDepth fmt then gl.GetInternalformat(target, ifmt, InternalFormatPName.DepthRenderable, 1u, Span data)
                                 else gl.GetInternalformat(target, ifmt, InternalFormatPName.ColorRenderable, 1u, Span data)
@@ -173,16 +173,15 @@ module internal DeviceInfo =
 
 
                                 let download =
-                                    if target = TextureTarget.Texture2D || target = TextureTarget.Texture2DArray then
-                                        gl.GetInternalformat(target, ifmt, InternalFormatPName.ReadPixelsType, 1u, Span data)
-                                        data.[0] <> 0
-                                    else
-                                        gl.GetInternalformat(target, ifmt, InternalFormatPName.GetTextureImageType, 1u, Span data)
-                                        data.[0] <> 0
+                                    gl.GetInternalformat(target, ifmt, InternalFormatPName.GetTextureImageType, 1u, Span data)
+ 
+                                    data.[0] <> 0 && 
+                                    data.[0] <> 0x8F9C // intel reports GL_SIGNED_NORMALIZED as pixelType for SNORM formats
 
                                 gl.GetInternalformat(target, ifmt, InternalFormatPName.ImagePixelType, 1u, Span data)
                                 let upload = data.[0] <> 0
                             
+
                                 gl.GetInternalformat(target, ifmt, InternalFormatPName.NumSampleCounts, 1u, Span data)
                                 let cnt = data.[0]
 
