@@ -63,33 +63,13 @@ type OpenGLFeatures =
             textureStorage  = true
         }
 
-type DeviceConfig =
+type OpenGLDeviceConfig =
     {
-        forceDedicated      : bool
-        queues      : int
-        features    : OpenGLFeatures
-        debug       : bool
+        forceDedicated  : bool
+        queues          : int
+        features        : OpenGLFeatures
+        debug           : bool
     }
-
-type ImageDescription =
-    {
-        format  : ImageFormat
-        kind    : ImageKind
-        array   : bool
-        ms      : bool
-    }
-
-type ImageFeatures =
-    {
-        maxSize     : V3i
-        maxCount    : int
-        render      : bool
-        upload      : bool
-        download    : bool
-        sample      : bool
-        samples     : Set<int>
-    }
-
 
 type DeviceInfo =
     {
@@ -243,7 +223,7 @@ module internal DeviceInfo =
                         
         result
 
-    let read (gl : GL) (cfg : DeviceConfig) =
+    let read (gl : GL) (cfg : OpenGLDeviceConfig) =
         let glsl =
             let glsl = gl.GetString(StringName.ShadingLanguageVersion)
             let m = versionRx.Match glsl
@@ -421,7 +401,7 @@ type OpenGLDebugMessage =
     | Warning of message : string
     | Error of message : string
 
-type OpenGLDevice(cfg : DeviceConfig) =
+type OpenGLDevice(cfg : OpenGLDeviceConfig) =
     inherit Device()
 
     do if cfg.forceDedicated then DynamicLinker.tryLoadLibrary ("nvapi64" + libraryExtension) |> ignore

@@ -2,6 +2,26 @@
 
 open System.Threading.Tasks
 open Anteater
+open Aardvark.Base
+
+type ImageDescription =
+    {
+        format  : ImageFormat
+        kind    : ImageKind
+        array   : bool
+        ms      : bool
+    }
+
+type ImageFeatures =
+    {
+        maxSize     : V3i
+        maxCount    : int
+        render      : bool
+        upload      : bool
+        download    : bool
+        sample      : bool
+        samples     : Set<int>
+    }
 
 [<AbstractClass>]
 type Device() =
