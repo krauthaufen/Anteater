@@ -316,9 +316,9 @@ type VersionGenerator =
 let cfg = { FsCheckConfig.defaultConfig with maxTest = 100; arbitrary = [ typeof<VersionGenerator> ] }
 
 
-let private devices = System.Collections.Concurrent.ConcurrentDictionary<OpenGLDevicConfig, OpenGLDevice>()
+let private devices = System.Collections.Concurrent.ConcurrentDictionary<OpenGLDeviceConfig, OpenGLDevice>()
 
-let getDevice (features : OpenGLDevicConfig) =
+let getDevice (features : OpenGLDeviceConfig) =
     devices.GetOrAdd(features, fun features ->
         new OpenGLDevice { features with forceDedicated = forceDedicated }
     )

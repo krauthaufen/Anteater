@@ -138,12 +138,12 @@ Target.create "Clean" (fun _ ->
 Target.create "Compile" (fun _ ->
     let options (o : DotNet.BuildOptions) =
         let v = sprintf "%d.%d.%d.%s" notes.SemVer.Major notes.SemVer.Minor notes.SemVer.Patch (string notes.SemVer.Build)
-
         { o with 
             Configuration = DotNet.BuildConfiguration.Release
             
             MSBuildParams = 
                 { o.MSBuildParams with 
+                    DisableInternalBinLog = true        
                     Properties = 
                         [
                             "GenerateAssemblyInfo", "true"
